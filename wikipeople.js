@@ -3,9 +3,11 @@
  * WikiPeople — names the people who wrote the text you are reading.
  *
  * The script is wiki-agnostic: it reports its own wiki through wgDBname and lets the
- * API decide whether that wiki is served. An unsupported wiki answers 404, the fetch
- * rejects, and nothing is rendered — so this same file can ship on every Wikipedia
- * while the backend enables wikis one at a time.
+ * API decide whether that wiki is served. An unsupported Wikipedia answers 404, the
+ * fetch rejects, and nothing is rendered — so this same file can ship on every
+ * Wikipedia while the backend enables wikis one at a time. The refusal is remembered
+ * for a day, so a reader whose script manager carries this file onto Commons or
+ * Wikidata asks once instead of on every page.
  *
  * Wording and help links come from the reader's own User:<name>/wikipeople-config.json
  * on the local wiki, alongside the script itself. While WikiPeople is a personal script
@@ -53,6 +55,16 @@
 	var CONFIG_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 	var CONTENT_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 	var PENDING_RETRY_DELAYS_MS = [ 3000, 10000 ];
+	// How long the gadget remembers that the API does not serve this wiki. A 404 from
+	// the attribution endpoint is a derived, deterministic answer rather than an
+	// outage — sites.py decides it without a network call — so it is worth keeping.
+	// A week of logs had 17% of all views coming from Commons, Wikidata, Wikisource and
+	// Wikinews, where a reader whose script manager loads this file on every project
+	// paid one refused request per page for an answer that could never change. A day
+	// rather than for ever, because "not served" is also what a misconfigured
+	// deployment says and no reader should be locked out of a fixed wiki until they
+	// clear their storage.
+	var UNSERVED_WIKI_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 	// The API answers with the metric that produced the names. Only this one measures who
 	// wrote the text on screen, so only this one earns "written by"; any other metric,
 	// including one added after this file ships, gets the weaker wording it can support.
@@ -182,6 +194,10 @@
 	var listFormatter;
 
 	if ( config.wgNamespaceNumber !== 0 || !config.wgArticleId || !config.wgDBname ) {
+		return;
+	}
+
+	if ( readCache( unservedWikiKey(), UNSERVED_WIKI_MAX_AGE_MS, sharedStorage() ) ) {
 		return;
 	}
 
@@ -895,10 +911,17 @@
 		var data;
 
 		for ( attempt = 0; attempt <= delays.length; attempt++ ) {
-			data = await fetchJson( url, {
-				credentials: 'omit',
-				referrerPolicy: 'no-referrer'
-			} );
+			try {
+				data = await fetchJson( url, {
+					credentials: 'omit',
+					referrerPolicy: 'no-referrer'
+				} );
+			} catch ( error ) {
+				if ( error && error.status === 404 ) {
+					writeCache( unservedWikiKey(), true, sharedStorage() );
+				}
+				throw error;
+			}
 
 			if ( data.status === 'ready' ) {
 				if (
@@ -917,10 +940,37 @@
 
 			if ( attempt < delays.length ) {
 				await wait( delays[ attempt ] );
+				await whenVisible();
 			}
 		}
 
 		return null;
+	}
+
+	/**
+	 * Resolve once the tab is on screen, immediately when it already is.
+	 *
+	 * Browsers throttle timers in a background tab, which is exactly the tab this
+	 * matters for: opening a dozen articles with the middle mouse button fires a dozen
+	 * first requests and then no retry until the reader arrives, by which time the
+	 * three-second and thirteen-second marks are long past. Over a week, 104 of the 153
+	 * views that showed nothing had made a single request, while the result they were
+	 * waiting for was stored a median two seconds later. Spending the two retries when
+	 * the tab is looked at rather than when a clock says so costs nothing on a
+	 * foreground page and is the whole difference on a backgrounded one.
+	 */
+	function whenVisible() {
+		if ( document.visibilityState !== 'hidden' ) {
+			return Promise.resolve();
+		}
+		return new Promise( function ( resolve ) {
+			document.addEventListener( 'visibilitychange', function onVisibilityChange() {
+				if ( document.visibilityState !== 'hidden' ) {
+					document.removeEventListener( 'visibilitychange', onVisibilityChange );
+					resolve();
+				}
+			} );
+		} );
 	}
 
 	function normalizeContributionData( data ) {
@@ -952,6 +1002,7 @@
 			controller.abort();
 		}, REQUEST_TIMEOUT_MS );
 		var response;
+		var error;
 
 		try {
 			response = await fetch( url, Object.assign( {
@@ -962,7 +1013,12 @@
 			}, options ) );
 
 			if ( !response.ok ) {
-				throw new Error( 'HTTP error ' + response.status );
+				error = new Error( 'HTTP error ' + response.status );
+				// The caller cannot ask the Response once this has been thrown, and one
+				// status means something no other does: 404 is the API saying it will
+				// never serve this wiki, not that this request went wrong.
+				error.status = response.status;
+				throw error;
 			}
 
 			return await response.json();
@@ -1124,19 +1180,34 @@
 			config.wgArticleId;
 	}
 
-	function readCache( key, maxAgeMs ) {
+	/**
+	 * A key that has to outlive the tab, unlike everything else cached here.
+	 *
+	 * Which wiki the API serves is the same answer in every tab, and the reader who
+	 * pays for asking is precisely the one who opens many at once. Session storage
+	 * would make each of those ask again.
+	 */
+	function unservedWikiKey() {
+		return 'wikipeople:unserved:' + CACHE_VERSION + ':' + config.wgDBname;
+	}
+
+	function sharedStorage() {
+		return window.localStorage;
+	}
+
+	function readCache( key, maxAgeMs, storage ) {
 		var raw;
 		var cached;
 
 		try {
-			raw = window.sessionStorage.getItem( key );
+			raw = ( storage || window.sessionStorage ).getItem( key );
 			cached = raw ? JSON.parse( raw ) : null;
 			if (
 				!cached ||
 				typeof cached.storedAt !== 'number' ||
 				Date.now() - cached.storedAt > maxAgeMs
 			) {
-				window.sessionStorage.removeItem( key );
+				( storage || window.sessionStorage ).removeItem( key );
 				return null;
 			}
 			return cached.data || null;
@@ -1145,9 +1216,9 @@
 		}
 	}
 
-	function writeCache( key, data ) {
+	function writeCache( key, data, storage ) {
 		try {
-			window.sessionStorage.setItem( key, JSON.stringify( {
+			( storage || window.sessionStorage ).setItem( key, JSON.stringify( {
 				data: data,
 				storedAt: Date.now()
 			} ) );

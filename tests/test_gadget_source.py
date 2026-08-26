@@ -380,3 +380,53 @@ def test_a_configuration_page_cannot_hand_the_gadget_a_value_it_does_not_accept(
     # Validated to a real boolean, so the switch is read as one rather than compared to
     # the single literal a page happened to be written with.
     assert "if ( !wikiConfig.enabled ) {" in startup
+
+
+def test_an_api_refusal_is_remembered_instead_of_asked_again_on_every_page() -> None:
+    """A script manager that loads this file on every project pays one request per page.
+
+    A week of logs had 17% of all views arriving from Commons, Wikidata, Wikisource and
+    Wikinews, where the answer is a 404 that `sites.py` derives without a network call
+    and that cannot change between two pages. The gadget stays wiki-agnostic — it names
+    no host and no project, and the API remains the only thing that decides — but it
+    stops re-asking a question it has already had answered.
+    """
+    assert "UNSERVED_WIKI_MAX_AGE_MS" in GADGET_SOURCE
+    guard = GADGET_SOURCE.split("readCache( unservedWikiKey()", 1)[1].split("}", 1)[0]
+    assert "return" in guard
+
+    remembered = GADGET_SOURCE.split("error.status === 404", 1)[1].split("}", 1)[0]
+    assert "writeCache( unservedWikiKey()" in remembered
+    # Only the 404. A timeout or a 503 says this request went wrong, not that the wiki
+    # will never be served, and must not lock a reader out of a working deployment.
+    assert "error.status === 503" not in GADGET_SOURCE
+
+
+def test_the_refusal_outlives_the_tab_but_not_the_day() -> None:
+    """The reader who pays for asking is the one who opens many tabs at once."""
+    shared = GADGET_SOURCE.split("function sharedStorage()", 1)[1].split("}", 1)[0]
+    assert "window.localStorage" in shared
+    assert "24 * 60 * 60 * 1000" in GADGET_SOURCE
+    # Not for ever: "not served" is also what a misconfigured deployment says.
+    assert "Infinity" not in GADGET_SOURCE.split("UNSERVED_WIKI_MAX_AGE_MS", 1)[1][:200]
+
+
+def test_a_backgrounded_tab_retries_when_it_is_looked_at_rather_than_on_a_clock() -> None:
+    """Browsers throttle timers in background tabs, which is the tab this matters for.
+
+    Opening a dozen articles with the middle mouse button fires a dozen first requests
+    and then no retry until the reader arrives, long past the three- and thirteen-second
+    marks. Over a week, 104 of the 153 views that showed nothing had made exactly one
+    request while the answer they were waiting for was stored a median two seconds later.
+    """
+    retry_loop = GADGET_SOURCE.split("PENDING_RETRY_DELAYS_MS;", 1)[1].split(
+        "function whenVisible", 1
+    )[0]
+    assert "await wait( delays[ attempt ] );" in retry_loop
+    assert "await whenVisible();" in retry_loop
+
+    visible = GADGET_SOURCE.split("function whenVisible()", 1)[1].split("\n\t}", 1)[0]
+    assert "visibilitychange" in visible
+    # A foreground tab must not wait for an event that will never fire.
+    assert "document.visibilityState !== 'hidden'" in visible
+    assert "removeEventListener" in visible
