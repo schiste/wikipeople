@@ -341,3 +341,42 @@ def test_gadget_localises_plurals_and_lists_rather_than_hardcoding_french() -> N
     assert "wgUserLanguage" in GADGET_SOURCE
     # An unparsable MediaWiki language code must not break rendering.
     assert "safeFormatter" in GADGET_SOURCE
+
+
+def test_the_history_box_is_for_readers_who_have_not_seen_a_history_before() -> None:
+    """Explaining a page history to someone reading it on purpose is noise.
+
+    Logged in is not the same as knowing the wiki, but it is the only signal in the
+    browser, and the reader it misjudges is the one who can set "always". The gate must
+    stay a single named function: read inline, "anonymous" is a string that looks like a
+    switch, and the third state would drift between the two views that consult it.
+    """
+    gate = GADGET_SOURCE.split("function showsHistoryIntro(", 1)[1].split("\n\t}", 1)[0]
+    assert "'always'" in gate
+    assert "'never'" in gate
+    # The default falls through to the reader, not to a constant.
+    assert "return !config.wgUserName;" in gate
+
+    startup = GADGET_SOURCE.split("mw.loader.using(", 1)[1].split("/* ", 1)[0]
+    assert "if ( showsHistoryIntro( wikiConfig ) ) {" in startup
+    # Nothing else may test the raw value; three states cannot survive a boolean check.
+    assert "wikiConfig.showHistoryIntro" not in startup
+
+
+def test_a_configuration_page_cannot_hand_the_gadget_a_value_it_does_not_accept() -> None:
+    """Hand-written JSON on a wiki, read years later by a newer script.
+
+    Every value is checked against what its option accepts and a rejected one falls back
+    to the default, so no consumer has to defend itself against "enabled": "false".
+    """
+    body = GADGET_SOURCE.split("function normalizeConfig( parsed ) {", 1)[1].split("\n\t}", 1)[0]
+    # Only keys the gadget declares are copied, so an unknown one cannot reach a consumer.
+    assert "Object.keys( DEFAULT_CONFIG ).forEach(" in body
+    assert "ALLOWED_VALUES[ key ].indexOf( value ) !== -1" in body
+    # Booleans meant something before showHistoryIntro grew a third state.
+    assert "value ? 'always' : 'never'" in body
+
+    startup = GADGET_SOURCE.split("mw.loader.using(", 1)[1].split("/* ", 1)[0]
+    # Validated to a real boolean, so the switch is read as one rather than compared to
+    # the single literal a page happened to be written with.
+    assert "if ( !wikiConfig.enabled ) {" in startup

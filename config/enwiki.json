@@ -1,6 +1,16 @@
 {
+	"//": {
+		"note": "Everything in this block is documentation for whoever edits this page. The gadget reads the six options below it, checks each value against the list given here, and ignores every other key — including this one.",
+		"documentation": "https://github.com/schiste/wikifame/blob/main/docs/onwiki-setup.md",
+		"enabled": "true or false. Default: true. false stops the gadget on this wiki.",
+		"showHistoryIntro": "\"anonymous\", \"always\" or \"never\". Default: \"anonymous\", which shows the history box to logged-out readers only.",
+		"editHelpPage": "A local page title, or null. Default: null. Used only together with sandboxPage.",
+		"sandboxPage": "A local page title, or null. Default: null. Used only together with editHelpPage.",
+		"historyIntroPage": "A local page title, or null. Default: null. Its wikitext replaces the built-in history box text.",
+		"messages": "An object mapping a message key to its replacement text. Default: {}. The keys are listed in the documentation above."
+	},
 	"enabled": true,
-	"showHistoryIntro": true,
+	"showHistoryIntro": "anonymous",
 	"editHelpPage": "Help:Editing",
 	"sandboxPage": "Wikipedia:Sandbox",
 	"historyIntroPage": null,

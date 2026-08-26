@@ -16,6 +16,10 @@
  * When this becomes a site-wide gadget the page moves to MediaWiki:Wikipeople-config.json
  * and only CONFIG_PAGE_SUFFIX and configPage() change.
  *
+ * Every option, its default, and the values it accepts are DEFAULT_CONFIG and ALLOWED_VALUES
+ * below. The published pages in config/ and the field table in docs/onwiki-setup.md say the
+ * same thing to the person editing the page, and a test holds the three together.
+ *
  * Two extension points exist so that nobody has to fork this file:
  *
  *   historyIntroPage  a wikitext page whose parsed HTML replaces the built-in history
@@ -72,13 +76,34 @@
 	// spinner that long is its own kind of lie.
 	var PENDING_SETTLE_MS = 2500;
 
+	/**
+	 * Every option this gadget reads, and what applies when the configuration page says
+	 * nothing. This object is the contract: a key that is not here is not read, so a
+	 * page carrying a typo, or one copied from a later revision of the gadget, changes
+	 * nothing rather than changing something unpredictable.
+	 */
 	var DEFAULT_CONFIG = {
 		enabled: true,
-		showHistoryIntro: true,
+		showHistoryIntro: 'anonymous',
 		editHelpPage: null,
 		sandboxPage: null,
 		historyIntroPage: null,
 		messages: {}
+	};
+
+	/**
+	 * The values that mean something, for the options whose value is a choice rather
+	 * than a page title or free text.
+	 *
+	 * A value outside its list is not obeyed and not half-obeyed: the default applies.
+	 * "showHistoryIntro": "anonymou" must not become a fourth state nobody wrote, and
+	 * "enabled": "false" — a string, which is what a hand-edited page tends to grow —
+	 * must not switch the gadget off by being merely truthy, nor on by being merely
+	 * present.
+	 */
+	var ALLOWED_VALUES = {
+		enabled: [ true, false ],
+		showHistoryIntro: [ 'anonymous', 'always', 'never' ]
 	};
 
 	/**
@@ -163,7 +188,7 @@
 	mw.loader.using( [ 'mediawiki.util', 'mediawiki.Title', 'mediawiki.jqueryMsg' ] )
 		.then( loadWikiConfig )
 		.then( function ( wikiConfig ) {
-			if ( wikiConfig.enabled === false ) {
+			if ( !wikiConfig.enabled ) {
 				return;
 			}
 
@@ -171,7 +196,7 @@
 			installFormatters();
 
 			if ( config.wgAction === 'history' ) {
-				if ( wikiConfig.showHistoryIntro !== false ) {
+				if ( showsHistoryIntro( wikiConfig ) ) {
 					return addHistoryIntroduction( wikiConfig );
 				}
 				return;
@@ -217,7 +242,7 @@
 		var parsed;
 
 		if ( !page ) {
-			return Object.assign( {}, DEFAULT_CONFIG );
+			return normalizeConfig( {} );
 		}
 
 		// The page is per user as well as per wiki, so both belong in the key: a shared
@@ -226,7 +251,7 @@
 		cached = readCache( cacheKey, CONFIG_CACHE_MAX_AGE_MS );
 
 		if ( cached ) {
-			return Object.assign( {}, DEFAULT_CONFIG, cached );
+			return normalizeConfig( cached );
 		}
 
 		url = mw.util.wikiScript( 'index' ) +
@@ -243,12 +268,88 @@
 			parsed = {};
 		}
 
+		// Cached as the page wrote it and normalised on the way out. Storing the
+		// normalised object instead would bake today's defaults into the cache for a
+		// day, so a reader who updates the gadget would keep the old behaviour until
+		// the entry expired.
+		writeCache( cacheKey, parsed );
+		return normalizeConfig( parsed );
+	}
+
+	/**
+	 * The configuration this reader actually gets: the defaults, with each option the
+	 * page sets to a value the gadget accepts laid over the top.
+	 *
+	 * Nothing here trusts the page. It is JSON written by hand, on a wiki, possibly
+	 * years ago against a different revision of this file, so every value is checked
+	 * against what its option can be and a rejected one falls back to its default
+	 * rather than reaching the code that consumes it.
+	 */
+	function normalizeConfig( parsed ) {
+		var wikiConfig = Object.assign( {}, DEFAULT_CONFIG );
+
 		if ( !parsed || typeof parsed !== 'object' || Array.isArray( parsed ) ) {
-			parsed = {};
+			return wikiConfig;
 		}
 
-		writeCache( cacheKey, parsed );
-		return Object.assign( {}, DEFAULT_CONFIG, parsed );
+		Object.keys( DEFAULT_CONFIG ).forEach( function ( key ) {
+			var value = parsed[ key ];
+
+			// showHistoryIntro was a boolean before it grew a third state, and pages
+			// written against that revision are still on wikis. They keep meaning what
+			// they said rather than quietly reverting to the default.
+			if ( key === 'showHistoryIntro' && typeof value === 'boolean' ) {
+				value = value ? 'always' : 'never';
+			}
+
+			if ( ALLOWED_VALUES[ key ] ) {
+				if ( ALLOWED_VALUES[ key ].indexOf( value ) !== -1 ) {
+					wikiConfig[ key ] = value;
+				}
+				return;
+			}
+
+			if ( key === 'messages' ) {
+				if ( value && typeof value === 'object' && !Array.isArray( value ) ) {
+					wikiConfig[ key ] = value;
+				}
+				return;
+			}
+
+			// Everything left is a page title. An empty string is how a page says "none"
+			// while keeping the key visible, and a link to a page called "" is worse
+			// than no link at all.
+			if ( typeof value === 'string' && value.trim() ) {
+				wikiConfig[ key ] = value.trim();
+			}
+		} );
+
+		return wikiConfig;
+	}
+
+	/**
+	 * Whether the history box renders for this reader.
+	 *
+	 * The box explains what a page history is. That is worth the space for someone who
+	 * has never seen one and is noise for someone who came to the page to read it, so
+	 * the default shows it to logged-out readers only. Being logged in is not the same
+	 * as knowing the wiki, but it is the only signal available here — and the reader it
+	 * gets wrong is precisely the one who can open a configuration page and say
+	 * "always".
+	 *
+	 * While this is a personal script the configuration page is the reader's own, so a
+	 * logged-out reader never has one and always gets this default. The option earns
+	 * its third state when the page moves to MediaWiki: space and one setting covers
+	 * everybody.
+	 */
+	function showsHistoryIntro( wikiConfig ) {
+		if ( wikiConfig.showHistoryIntro === 'always' ) {
+			return true;
+		}
+		if ( wikiConfig.showHistoryIntro === 'never' ) {
+			return false;
+		}
+		return !config.wgUserName;
 	}
 
 	/* ------------------------------------------------------------- custom content */

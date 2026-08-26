@@ -54,12 +54,29 @@ or practise in …" sentence in the history box is simply left out.
 5. Reload an article **in a new tab**. The script caches the configuration in `sessionStorage`, so
    an already-open tab may still be using the previous version.
 
+Both files state **every** option, at its default, and open with a `"//"` block naming what each
+one accepts. The gadget reads six keys and ignores everything else, `"//"` included, so that block
+costs nothing and means the page you are editing on the wiki explains itself — which matters,
+because JSON pages cannot carry comments and nobody reads a repository from a wiki edit box.
+
+Keep the options you do not change. A page listing all six shows the next person what exists.
+
 ### English Wikipedia — [`config/enwiki.json`](../config/enwiki.json)
 
 ```json
 {
+	"//": {
+		"note": "Everything in this block is documentation for whoever edits this page. The gadget reads the six options below it, checks each value against the list given here, and ignores every other key — including this one.",
+		"documentation": "https://github.com/schiste/wikifame/blob/main/docs/onwiki-setup.md",
+		"enabled": "true or false. Default: true. false stops the gadget on this wiki.",
+		"showHistoryIntro": "\"anonymous\", \"always\" or \"never\". Default: \"anonymous\", which shows the history box to logged-out readers only.",
+		"editHelpPage": "A local page title, or null. Default: null. Used only together with sandboxPage.",
+		"sandboxPage": "A local page title, or null. Default: null. Used only together with editHelpPage.",
+		"historyIntroPage": "A local page title, or null. Default: null. Its wikitext replaces the built-in history box text.",
+		"messages": "An object mapping a message key to its replacement text. Default: {}. The keys are listed in the documentation above."
+	},
 	"enabled": true,
-	"showHistoryIntro": true,
+	"showHistoryIntro": "anonymous",
 	"editHelpPage": "Help:Editing",
 	"sandboxPage": "Wikipedia:Sandbox",
 	"historyIntroPage": null,
@@ -71,8 +88,18 @@ or practise in …" sentence in the history box is simply left out.
 
 ```json
 {
+	"//": {
+		"note": "Everything in this block is documentation for whoever edits this page. The gadget reads the six options below it, checks each value against the list given here, and ignores every other key — including this one.",
+		"documentation": "https://github.com/schiste/wikifame/blob/main/docs/onwiki-setup.md",
+		"enabled": "true or false. Default: true. false stops the gadget on this wiki.",
+		"showHistoryIntro": "\"anonymous\", \"always\" or \"never\". Default: \"anonymous\", which shows the history box to logged-out readers only.",
+		"editHelpPage": "A local page title, or null. Default: null. Used only together with sandboxPage.",
+		"sandboxPage": "A local page title, or null. Default: null. Used only together with editHelpPage.",
+		"historyIntroPage": "A local page title, or null. Default: null. Its wikitext replaces the built-in history box text.",
+		"messages": "An object mapping a message key to its replacement text. Default: {}. The keys are listed in the documentation above."
+	},
 	"enabled": true,
-	"showHistoryIntro": true,
+	"showHistoryIntro": "anonymous",
 	"editHelpPage": "Aide:Comment modifier une page",
 	"sandboxPage": "Wikipédia:Bac à sable",
 	"historyIntroPage": null,
@@ -85,22 +112,45 @@ pull request so the next person on that wiki does not have to.
 
 ## Fields
 
-| Key | Type | Default | Effect |
+| Key | Accepts | Default | Effect |
 | --- | --- | --- | --- |
-| `enabled` | boolean | `true` | `false` switches the script off on this wiki. It stops before rendering anything. |
-| `showHistoryIntro` | boolean | `true` | `false` removes the explanatory box on page-history views but keeps the attribution sentence on articles. |
-| `editHelpPage` | string or `null` | `null` | Local title of the editing help page. |
-| `sandboxPage` | string or `null` | `null` | Local title of the sandbox. |
-| `historyIntroPage` | string or `null` | `null` | Title of a wikitext page whose content replaces the history box text. See [Rich content](#rich-content-images-video-anything-wikitext-can-do). |
-| `messages` | object | `{}` | Overrides individual interface strings by key. See the warning below. |
+| `enabled` | `true`, `false` | `true` | `false` switches the script off on this wiki. It stops before rendering anything. |
+| `showHistoryIntro` | `"anonymous"`, `"always"`, `"never"` | `"anonymous"` | Who gets the explanatory box on page-history views. See [Who sees the history box](#who-sees-the-history-box). The attribution sentence on articles is not affected. |
+| `editHelpPage` | a local page title, or `null` | `null` | Local title of the editing help page. |
+| `sandboxPage` | a local page title, or `null` | `null` | Local title of the sandbox. |
+| `historyIntroPage` | a local page title, or `null` | `null` | Title of a wikitext page whose content replaces the history box text. See [Rich content](#rich-content-images-video-anything-wikitext-can-do). |
+| `messages` | an object of message key to text | `{}` | Overrides individual interface strings by key. See the warning below. |
 
 Unknown keys are ignored, so a future option can be added without breaking existing pages.
 
-The two boolean options are read strictly: only a literal `false` turns them off. `"false"` as a
-string, `0`, or `null` all leave the option on. Write real JSON booleans.
+A value outside the "Accepts" column is ignored the same way, and the default applies. That covers
+the mistakes JSON invites: `"false"` as a string, `0`, or `null` are not values `enabled` accepts,
+so none of them switches the script off — write a real JSON `false`. The same goes for a misspelt
+`"anonymou"`, which is not a fourth state but simply no instruction at all. Nothing warns you, so
+copy the values above rather than typing them.
+
+`showHistoryIntro` was a boolean before it grew a third state. `true` and `false` are still
+understood, as `"always"` and `"never"`, so a page written against an older version of the script
+keeps doing what it said.
 
 `editHelpPage` and `sandboxPage` work as a pair. The help sentence appears only when **both** are
 set; setting just one leaves it out entirely.
+
+### Who sees the history box
+
+The box explains what a page history is: worth the space for someone who has never seen one, noise
+for someone who came to the page to read it. So the default, `"anonymous"`, shows it to logged-out
+readers only.
+
+Being logged in is not the same as knowing the wiki — but it is the only signal the script has, and
+the reader it gets wrong is exactly the one who can open this page and write `"always"`.
+
+**While WikiPeople is a personal script, this means you do not see the box yourself.** Your
+configuration page lives in your user space and is only read when you are logged in, which is the
+one case the default hides it. Set `"always"` while you are working on the box, or to keep it for
+yourself; `"never"` turns it off for everybody. The three states only really pay off
+[later](#later-becoming-a-site-wide-gadget), when the configuration stops being personal and one
+setting covers every reader of a wiki.
 
 ## Where the wording comes from
 
@@ -269,8 +319,9 @@ order:
 | Nothing on any article, this wiki only | The wiki is not covered by WikiWho, or `enabled` is `false`. |
 | Nothing on one article, others fine | No result computed yet. The first request queues the work; come back later. Normal for a page nobody has viewed with the script before. |
 | Nothing anywhere, on every wiki | The script is not loading. Check the `importScript` line in your `common.js`, and the browser console. |
-| The sentence shows but the help sentence does not | `editHelpPage` and `sandboxPage` are not both set, `showHistoryIntro` is `false`, or `historyIntroPage` is set and has replaced it. |
-| Configuration edits have no effect | Stale `sessionStorage`; open a new tab. Or a key is misspelled — unknown keys are ignored silently. |
+| No box on page-history views, but articles are fine | `showHistoryIntro` is at its default `"anonymous"` and you are logged in. Set `"always"`. |
+| The sentence shows but the help sentence does not | `editHelpPage` and `sandboxPage` are not both set, `showHistoryIntro` is `"never"`, or `historyIntroPage` is set and has replaced it. |
+| Configuration edits have no effect | Stale `sessionStorage`; open a new tab. Or a key is misspelled, or its value is not one the option accepts — both are ignored silently. |
 | `historyIntroPage` is set but the built-in text still shows | The page does not exist under any of the three titles tried, or its absence is still cached. Create it, then open a new tab. |
 | Custom content renders but looks wrong | It is your wikitext, parsed as usual. Preview the page on its own; what you see there is what the box gets. Oversized media is constrained by `wikipeople.css`, not fixed. |
 | The author count stays on its fallback wording | No result for this article yet — open the article itself once, wait, then come back. Also check the class name: `wikipeople-count`, on an element, not a template parameter. |

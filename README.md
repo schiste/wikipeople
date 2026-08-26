@@ -124,13 +124,16 @@ job is supplying the two local titles the script cannot guess:
 ```json
 {
 	"enabled": true,
-	"showHistoryIntro": true,
+	"showHistoryIntro": "anonymous",
 	"editHelpPage": "Aide:Comment modifier une page",
 	"sandboxPage": "Wikipédia:Bac à sable",
 	"historyIntroPage": null,
 	"messages": {}
 }
 ```
+
+The published files also carry a `"//"` block stating what each option accepts, which the script
+ignores: a page edited on a wiki has to explain itself, and JSON has no comments.
 
 Defaults per wiki are published in [`config/`](config): [`enwiki.json`](config/enwiki.json),
 [`frwiki.json`](config/frwiki.json). Copy the one for your wiki; send a pull request if you work
