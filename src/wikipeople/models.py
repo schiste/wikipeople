@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from sqlalchemy import (
     JSON,
     BigInteger,
     Boolean,
+    Date,
     DateTime,
     Index,
     Integer,
@@ -22,6 +23,11 @@ SQL_ID = BigInteger().with_variant(Integer, "sqlite")
 def utcnow() -> datetime:
     """Return a timezone-naive UTC value, suitable for MariaDB DATETIME."""
     return datetime.now(UTC).replace(tzinfo=None)
+
+
+def utctoday() -> date:
+    """The current UTC day, so counters do not roll over on a server's local midnight."""
+    return datetime.now(UTC).date()
 
 
 class Base(DeclarativeBase):
@@ -190,3 +196,68 @@ class ContributorStanding(Base):
     lock_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     lock_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     synced_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+
+class PageDemand(Base):
+    """Which articles are worth computing next, and nothing about who wanted them.
+
+    Two very different signals share one row because they answer the same question.
+    ``views`` comes from the published pageview dumps: how much the world reads this
+    article, accumulated day by day so a steady readership outranks a one-day spike.
+    ``requests`` comes from this API's own traffic: how often a reader with the gadget
+    installed opened the article and waited for an answer. Ranking by requests first
+    and views second puts the pages this tool's actual readers open ahead of the pages
+    the world reads, which is the difference between a warm cache and a fast one.
+
+    Deliberately a counter and not a log. There is no actor, no address, no timestamp
+    per visit and no row per request, so this table can say "someone reads this
+    article" and can never say who, from where, or in what order. A reading history is
+    not reconstructible from data that was never a sequence, and ``cleanup`` drops rows
+    nothing has touched in months so it does not become one by accumulation either.
+
+    ``queued_at`` is what makes the walk exact. A keyset cursor over a ranking that
+    changes under it — and this one changes every day — skips rows and repeats others;
+    marking each page as it is handed to the queue cannot. It doubles as the re-warm
+    clock: clearing it past ``PAGE_FRESHNESS_SECONDS`` puts the page back in line.
+    """
+
+    __tablename__ = "page_demand"
+    __table_args__ = (Index("ix_demand_rank", "wiki", "queued_at", "requests", "views"),)
+
+    wiki: Mapped[str] = mapped_column(String(64), primary_key=True)
+    page_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    views: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    requests: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    last_viewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_requested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    queued_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+
+class UsageCounter(Base):
+    """How many answers each wiki got, per day and per kind of answer.
+
+    The webservice access log is the only record of use today, and it is the wrong
+    one twice over: it is retained for days rather than months, and behind Toolforge's
+    front proxy every line carries the proxy's address, so it can neither answer "is
+    this tool used" over a season nor be asked to. Counting outcomes instead answers
+    the operational question — how much of the traffic is served warm, how much waits,
+    how much asks for a wiki this deployment does not serve — from four integers a day
+    per wiki.
+
+    The primary key is the aggregate itself, so there is nothing to anonymise: a row
+    exists before any particular request does, and every request only increments one.
+    The wiki of an unserved request is recorded only when it is a real Wikipedia this
+    deployment has turned off; anything else counts under ``-``, so a stranger cannot
+    make rows by inventing wiki names.
+    """
+
+    __tablename__ = "usage_counters"
+
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    wiki: Mapped[str] = mapped_column(String(64), primary_key=True)
+    outcome: Mapped[str] = mapped_column(String(32), primary_key=True)
+    requests: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utcnow, onupdate=utcnow
+    )

@@ -521,6 +521,43 @@ class MediaWikiClient:
                 )
         return pages
 
+    def resolve_page_ids(self, wiki: str, page_ids: list[int]) -> list[PageMetadata]:
+        """Current revision and title for a set of page ids, 50 at a time.
+
+        The demand table stores page ids because that is what survives a rename, and a
+        page id is exactly what the queue needs; what it does not carry is the revision
+        the page is on today. This is the lookup that supplies it, so a page a reader
+        asked about last week is re-checked against the article as it stands now rather
+        than as it stood when they read it.
+
+        A deleted page comes back as ``missing`` and is dropped, as with titles.
+        """
+        pages: list[PageMetadata] = []
+        for start in range(0, len(page_ids), 50):
+            data = self._action(
+                wiki,
+                {
+                    "action": "query",
+                    "pageids": "|".join(str(page_id) for page_id in page_ids[start : start + 50]),
+                    "prop": "revisions",
+                    "rvprop": "ids",
+                },
+                method="POST",
+            )
+            for page in data.get("query", {}).get("pages", []):
+                revisions = page.get("revisions", [])
+                if page.get("missing") or not revisions:
+                    continue
+                pages.append(
+                    PageMetadata(
+                        page_id=int(page["pageid"]),
+                        revision_id=int(revisions[0]["revid"]),
+                        title=str(page["title"]),
+                        namespace=int(page["ns"]),
+                    )
+                )
+        return pages
+
     def all_pages_batch(
         self, wiki: str, cursor: str | None
     ) -> tuple[list[PageMetadata], str | None]:

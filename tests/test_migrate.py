@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -17,7 +17,7 @@ from wikipeople.models import (
     WorkItem,
 )
 
-NOW = datetime(2026, 8, 18, 12, 0, tzinfo=timezone.utc).replace(tzinfo=None)
+NOW = datetime(2026, 8, 18, 12, 0, tzinfo=UTC).replace(tzinfo=None)
 
 # A block reason exactly like the ones that broke the TSV route: written by an
 # administrator, wrapped across lines, and indented with a tab.

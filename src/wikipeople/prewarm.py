@@ -82,6 +82,50 @@ def prewarm_wiki(runtime: Runtime, analytics, mediawiki, wiki: str, days: int) -
     return queued
 
 
+def prewarm_requested(runtime: Runtime, mediawiki, wiki: str) -> int:
+    """Re-check the articles readers of this tool actually opened.
+
+    The top-1000 ranking above is what the world reads; this is what the handful of
+    people running the gadget read, and the two overlap less than one would hope. A
+    reader who opens an article outside the ranking pays the wait themselves, and today
+    nothing brings that page back afterwards: it is computed once and left to go stale
+    for a quarter while the reader who asked for it is precisely the one likely to
+    return to it.
+
+    Cheap by construction. The demand table holds page ids, so this is one Action API
+    call per fifty pages, and a page still sitting on the revision its cached answer
+    describes is skipped without any work at all.
+    """
+    settings = runtime.settings
+    page_ids = runtime.repository.recently_requested_pages(
+        wiki, settings.requested_prewarm_days, settings.requested_prewarm_limit
+    )
+    if not page_ids:
+        return 0
+
+    pages = mediawiki.resolve_page_ids(wiki, page_ids)
+    queued = 0
+    for page in pages:
+        if page.namespace != 0:
+            continue
+        if runtime.repository.enqueue_if_revision_changed(
+            wiki=wiki,
+            page_id=page.page_id,
+            revision_id=page.revision_id,
+            algorithm_version=settings.algorithm_version,
+            priority=50,
+            minimum_age_seconds=settings.requested_recompute_seconds,
+        ):
+            queued += 1
+    LOGGER.info(
+        "%s: queued %s of %s recently requested pages",
+        wiki,
+        queued,
+        len(page_ids),
+    )
+    return queued
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Prewarm popular Wikipedia articles")
     parser.add_argument("--wiki", default=None, help="Override the discovered wiki list")
@@ -110,6 +154,12 @@ def main() -> None:
             except WikiPeopleError as error:
                 # One unavailable wiki must not cancel prewarming for the others.
                 LOGGER.warning("%s: prewarm skipped (%s)", wiki, error)
+            try:
+                total += prewarm_requested(runtime, mediawiki, wiki)
+            except WikiPeopleError as error:
+                # Independently of the ranking above: Pageviews being down is no reason
+                # to stop refreshing the pages this tool's own readers opened.
+                LOGGER.warning("%s: requested-page refresh skipped (%s)", wiki, error)
         LOGGER.info("queued %s pages across %s wikis", total, len(wikis))
     finally:
         analytics.close()

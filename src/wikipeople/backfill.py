@@ -11,6 +11,11 @@ weeks of work, and they are the ones where "who wrote this" has an answer worth
 caching. Size is a proxy, not a merit ranking -- but it is a proxy the replica can
 sort on exactly, which "notability" is not.
 
+Readership is the better proxy, and `pageviews.py` makes it sortable too. So the
+order is now demand first -- the pages readers asked this API about, then the pages
+the published dumps say the world opens -- and size for whatever budget is left over
+once that ranking runs dry. Size never stopped being useful; it stopped being first.
+
 The Action API keeps its place as a fallback for a wiki whose replica is
 unreachable, filtered to non-redirects but still in title order.
 """
@@ -55,6 +60,64 @@ def enqueue_pages(runtime: Runtime, wiki: str, pages: list[tuple[int, int]]) -> 
         ):
             queued += 1
     return queued
+
+
+def demand_batch(
+    runtime: Runtime, replica: ReplicaClient, wiki: str, limit: int
+) -> tuple[int, int]:
+    """Hand one batch of the demand ranking to the queue. Returns (queued, selected).
+
+    The two numbers differ and both matter. ``selected`` is how much ranking there was
+    left, which is what decides whether this strategy still has work; ``queued`` is how
+    much of it was not already cached and fresh, which is usually far smaller and says
+    nothing about whether to keep going.
+
+    The ranking is page ids, so the replica is asked for their current revisions in one
+    round trip. Every page selected is marked as handed over, including the ones the
+    replica did not return: a deleted article or one turned into a redirect would
+    otherwise sit at the top of the ranking for ever, re-selected every hour.
+
+    Marked after the enqueue rather than before, so a run that dies against the replica
+    retries the same pages next hour instead of silently dropping them for a quarter.
+    """
+    page_ids = runtime.repository.pending_demand(wiki, limit)
+    if not page_ids:
+        return 0, 0
+    pages = replica.latest_revisions(wiki, page_ids)
+    queued = enqueue_pages(
+        runtime, wiki, [(page.page_id, page.revision_id) for page in pages.values()]
+    )
+    runtime.repository.mark_demand_queued(wiki, page_ids)
+    LOGGER.info(
+        "%s: %s of %s most-wanted pages queued (%s no longer articles)",
+        wiki,
+        queued,
+        len(page_ids),
+        len(page_ids) - len(pages),
+    )
+    return queued, len(page_ids)
+
+
+def backfill_by_demand(
+    runtime: Runtime, replica: ReplicaClient, wiki: str, batches: int
+) -> tuple[int, int]:
+    """Work down the demand ranking. Returns (pages queued, batches spent).
+
+    Spending fewer batches than offered is how the size walk gets its turn: an empty
+    ranking costs nothing and spends nothing, so a deployment with no pageview data yet
+    behaves exactly as it did before this strategy existed.
+    """
+    queued = 0
+    spent = 0
+    for _batch in range(max(1, batches)):
+        batch_queued, selected = demand_batch(
+            runtime, replica, wiki, runtime.settings.backfill_batch_size
+        )
+        queued += batch_queued
+        if not selected:
+            break
+        spent += 1
+    return queued, spent
 
 
 def backfill_by_length(runtime: Runtime, replica: ReplicaClient, wiki: str, batches: int) -> int:
@@ -117,10 +180,15 @@ def backfill_wiki(
     wiki: str,
     batches: int,
 ) -> int:
-    if replica.available():
-        return backfill_by_length(runtime, replica, wiki, batches)
-    LOGGER.info("%s: no replica credentials, falling back to title order", wiki)
-    return backfill_by_title(runtime, mediawiki, wiki, batches)
+    if not replica.available():
+        LOGGER.info("%s: no replica credentials, falling back to title order", wiki)
+        return backfill_by_title(runtime, mediawiki, wiki, batches)
+
+    queued, spent = backfill_by_demand(runtime, replica, wiki, batches)
+    remaining = max(0, batches - spent)
+    if remaining:
+        queued += backfill_by_length(runtime, replica, wiki, remaining)
+    return queued
 
 
 def main() -> None:

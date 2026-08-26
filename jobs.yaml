@@ -12,11 +12,31 @@
   schedule: "@daily"
   timeout: 3600
   emails: onfailure
+# 09:35 UTC: the previous day's pageview_complete file is published during the
+# morning, and the job's own lookback covers a day it lands late. Needs the dumps
+# mount, which build-service images do not get by default, and more memory than the
+# default 512Mi because a day of one large Wikipedia is held in a dictionary.
+- name: demand-ranking
+  image: tool-wikipeople/tool-wikipeople:latest
+  command: demand
+  schedule: "35 9 * * *"
+  timeout: 3600
+  memory: 2Gi
+  mount: all
+  emails: onfailure
+
 - name: gradual-backfill
   image: tool-wikipeople/tool-wikipeople:latest
   command: backfill
   schedule: "@hourly"
   timeout: 1800
+  emails: onfailure
+
+- name: weak-metric-recompute
+  image: tool-wikipeople/tool-wikipeople:latest
+  command: recompute
+  schedule: "@daily"
+  timeout: 900
   emails: onfailure
 
 - name: cache-cleanup

@@ -353,3 +353,35 @@ def test_get_page_reports_a_redirect() -> None:
 
     assert client.get_page("frwiki", 17556072).is_redirect is True
     client.close()
+
+
+def test_page_ids_resolve_to_their_current_revision_fifty_at_a_time() -> None:
+    """The demand table stores page ids; what it cannot store is the revision of today."""
+    client = MediaWikiClient("tests", 1)
+    batches: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = dict(httpx.QueryParams(request.content.decode()))
+        batches.append(body["pageids"])
+        return httpx.Response(
+            200,
+            json={
+                "query": {
+                    "pages": [
+                        {"pageid": 100, "ns": 0, "title": "France", "revisions": [{"revid": 250}]},
+                        {"pageid": 101, "ns": 0, "title": "Supprimée", "missing": True},
+                    ]
+                }
+            },
+        )
+
+    client.client.close()
+    client.client = httpx.Client(transport=httpx.MockTransport(handler))
+
+    pages = client.resolve_page_ids("frwiki", list(range(100, 160)))
+
+    # Fifty per request is the Action API's limit, not a tuning choice.
+    assert [len(batch.split("|")) for batch in batches] == [50, 10]
+    # A page deleted since it was read is dropped rather than queued.
+    assert [(page.page_id, page.revision_id) for page in pages] == [(100, 250), (100, 250)]
+    client.close()

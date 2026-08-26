@@ -91,6 +91,15 @@ class Settings:
     replica_password: str
     replica_host_template: str
     backfill_batch_size: int
+    pageview_dump_root: str
+    pageview_lookback_days: int
+    pageview_minimum_views: int
+    demand_top_pages: int
+    requested_prewarm_days: int
+    requested_prewarm_limit: int
+    requested_recompute_seconds: int
+    recompute_batch_size: int
+    recompute_min_age_seconds: int
 
     def max_visible_block_seconds_for(self, wiki: str) -> int:
         """The longest block an account may carry on this wiki and still be named.
@@ -208,6 +217,39 @@ class Settings:
             replica_password=os.getenv("TOOL_REPLICA_PASSWORD", ""),
             replica_host_template=os.getenv("REPLICA_HOST_TEMPLATE", DEFAULT_HOST_TEMPLATE),
             backfill_batch_size=int(os.getenv("BACKFILL_BATCH_SIZE", "500")),
+            # Where the Analytics team publishes complete pageviews on the Toolforge
+            # NFS mount. Empty or missing off Toolforge, which is what makes the demand
+            # job log and stop rather than needing a flag to say it is not there.
+            pageview_dump_root=os.getenv(
+                "PAGEVIEW_DUMP_ROOT", "/public/dumps/public/other/pageview_complete"
+            ),
+            # Yesterday's file usually lands during the morning and sometimes much
+            # later, so the job looks back a few days for the newest one that exists.
+            pageview_lookback_days=int(os.getenv("PAGEVIEW_LOOKBACK_DAYS", "5")),
+            # A memory bound, not a threshold of merit. A large Wikipedia has over a
+            # million pages opened at least once in a day and holding all of them costs
+            # more memory than a Toolforge job is given; a page under five views a day
+            # is not what a popularity ranking is deciding between.
+            pageview_minimum_views=int(os.getenv("PAGEVIEW_MINIMUM_VIEWS", "5")),
+            # How much of one day's ranking is kept. The backfill spends about twelve
+            # thousand pages a day, so this is several days of work per wiki: enough
+            # that the queue is never idle, small enough that the table stays a ranking
+            # rather than a copy of the wiki.
+            demand_top_pages=int(os.getenv("DEMAND_TOP_PAGES", "50000")),
+            requested_prewarm_days=int(os.getenv("REQUESTED_PREWARM_DAYS", "30")),
+            requested_prewarm_limit=int(os.getenv("REQUESTED_PREWARM_LIMIT", "2000")),
+            # A week. An article somebody opened is worth re-checking against its
+            # current text far sooner than the ninety days a page picked by a timer
+            # gets, and no sooner than this: a heavily edited article changes revision
+            # several times a day and would otherwise take the whole budget alone.
+            requested_recompute_seconds=int(
+                os.getenv("REQUESTED_RECOMPUTE_SECONDS", str(7 * 86400))
+            ),
+            recompute_batch_size=int(os.getenv("RECOMPUTE_BATCH_SIZE", "200")),
+            # Two weeks before a fallback answer is worth retrying. WikiWho indexes a
+            # revision within days when it indexes it at all, so anything sooner mostly
+            # spends the shared rate budget confirming the same refusal.
+            recompute_min_age_seconds=int(os.getenv("RECOMPUTE_MIN_AGE_SECONDS", str(14 * 86400))),
         )
 
 

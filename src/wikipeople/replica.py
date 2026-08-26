@@ -20,10 +20,11 @@ analytical scan they exist for.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from urllib.parse import quote_plus
 
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, bindparam, create_engine, text
 
 LOGGER = logging.getLogger(__name__)
 
@@ -34,6 +35,9 @@ _PAGE_FILTER = "page_namespace = 0 AND page_is_redirect = 0"
 _PAGE_ORDER = "ORDER BY page_len DESC, page_id DESC LIMIT :limit"
 
 FIRST_BATCH_SQL = text(f"SELECT {_PAGE_COLUMNS} FROM page WHERE {_PAGE_FILTER} {_PAGE_ORDER}")
+BY_ID_SQL = text(
+    f"SELECT {_PAGE_COLUMNS} FROM page WHERE {_PAGE_FILTER} AND page_id IN :page_ids"
+).bindparams(bindparam("page_ids", expanding=True))
 NEXT_BATCH_SQL = text(
     f"SELECT {_PAGE_COLUMNS} FROM page WHERE {_PAGE_FILTER}"
     f" AND (page_len, page_id) < (:length, :page_id) {_PAGE_ORDER}"
@@ -128,6 +132,27 @@ class ReplicaClient:
             return pages, None
         last = pages[-1]
         return pages, LengthCursor(length=last.length, page_id=last.page_id)
+
+    def latest_revisions(self, wiki: str, page_ids: Sequence[int]) -> dict[int, ReplicaPage]:
+        """Current revision and size for a set of page ids, keyed by id.
+
+        The demand ranking arrives as page ids and nothing else — the pageview dumps
+        carry no revision — so this is the one lookup that turns it into work. Batched
+        by primary key, which is the cheapest thing the replica can be asked, and
+        filtered the same way the size walk is: a page deleted or turned into a
+        redirect since the dump was published simply does not come back, and the caller
+        treats its absence as "nothing to compute" rather than as an error.
+        """
+        if not page_ids:
+            return {}
+        with self.engine(wiki).connect() as connection:
+            rows = connection.execute(BY_ID_SQL, {"page_ids": list(page_ids)}).all()
+        return {
+            int(row[0]): ReplicaPage(
+                page_id=int(row[0]), revision_id=int(row[1]), length=int(row[2])
+            )
+            for row in rows
+        }
 
     def close(self) -> None:
         for engine in self._engines.values():

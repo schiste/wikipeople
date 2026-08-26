@@ -303,3 +303,101 @@ def test_a_reader_holding_the_previous_policys_answer_is_not_told_it_is_current(
 
         assert response.status_code == 200, "a superseded answer must not validate as current"
         assert response.json()["contributors"][0]["username"] == "Roland45"
+
+
+def _counting_client(tmp_path: Path, name: str, **overrides: object):
+    defaults: dict[str, object] = {
+        "database_url": f"sqlite:///{tmp_path / name}",
+        "algorithm_version": "count-v1",
+    }
+    settings = replace(Settings.from_env(), **(defaults | overrides))  # type: ignore[arg-type]
+    runtime = build_runtime(settings)
+    return runtime, create_app(runtime)
+
+
+def test_every_answer_is_counted_by_wiki_day_and_outcome(tmp_path: Path) -> None:
+    """The access log cannot answer "is this used": behind the proxy every line is the proxy."""
+    runtime, app = _counting_client(tmp_path, "usage.db")
+
+    with TestClient(app) as client:
+        assert client.get("/v2/frwiki/pages/100?revision_id=200").status_code == 202
+
+        runtime.repository.save_result(
+            {
+                "wiki": "frwiki",
+                "page_id": 100,
+                "revision_id": 200,
+                "algorithm_version": "count-v1",
+                "title": "France",
+                "metric": "test-metric",
+                "contributors": [],
+                "distinct_contributors": 0,
+                "count_limited": False,
+                "countable_tokens": 20,
+                "wikiwho_revision_id": 200,
+                "computed_at": utcnow(),
+            }
+        )
+        ready = client.get("/v2/frwiki/pages/100?revision_id=200")
+        assert ready.status_code == 200
+        # A 304 is an answer served, so it is counted like one.
+        revalidated = client.get(
+            "/v2/frwiki/pages/100?revision_id=200",
+            headers={"If-None-Match": ready.headers["etag"]},
+        )
+        assert revalidated.status_code == 304
+
+        usage = client.get("/v1/stats").json()["usage"]
+
+    (day,) = usage
+    assert usage[day]["frwiki"] == {"pending": 1, "ready": 2}
+
+
+def test_a_request_for_an_unserved_wiki_is_counted_under_a_name_it_cannot_invent(
+    tmp_path: Path,
+) -> None:
+    """Counters are keyed by wiki, so an unchecked path would let anyone create rows."""
+    _runtime, app = _counting_client(tmp_path, "unserved.db", supported_wikis=("frwiki",))
+
+    with TestClient(app) as client:
+        assert client.get("/v2/eswiki/pages/1?revision_id=1").status_code == 404
+        assert client.get("/v2/commonswiki/pages/1?revision_id=1").status_code == 404
+        assert client.get("/v2/notawikiatall/pages/1?revision_id=1").status_code == 404
+
+        usage = client.get("/v1/stats").json()["usage"]
+
+    (day,) = usage
+    # A real Wikipedia this deployment turned off is the useful signal, by name.
+    assert usage[day]["eswiki"] == {"unsupported": 1}
+    # Everything else shares one bucket, so the table cannot be grown from the path.
+    assert usage[day]["-"] == {"unsupported": 2}
+
+
+def test_an_unserved_wiki_leaves_no_page_row_behind(tmp_path: Path) -> None:
+    runtime, app = _counting_client(tmp_path, "nopage.db", supported_wikis=("frwiki",))
+
+    with TestClient(app) as client:
+        client.get("/v2/eswiki/pages/1?revision_id=1")
+        client.get("/v2/frwiki/pages/77?revision_id=1")
+
+    assert runtime.repository.demand_counts() == {
+        "frwiki": {"pages": 1, "waiting": 1, "requested": 1}
+    }
+
+
+def test_the_pages_readers_open_are_remembered_without_remembering_the_readers(
+    tmp_path: Path,
+) -> None:
+    runtime, app = _counting_client(tmp_path, "demand.db")
+
+    with TestClient(app) as client:
+        client.get("/v2/frwiki/pages/100?revision_id=200")
+        client.get("/v2/frwiki/pages/100?revision_id=201")
+        client.get("/v2/frwiki/pages/101?revision_id=300")
+
+    # Two articles, three requests: nothing here is a visit.
+    assert runtime.repository.recently_requested_pages("frwiki", since_days=1, limit=10) == [
+        101,
+        100,
+    ]
+    assert runtime.repository.demand_counts()["frwiki"]["pages"] == 2

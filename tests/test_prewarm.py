@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from wikipeople.config import Settings
@@ -80,3 +80,115 @@ def test_explicit_wiki_argument_overrides_discovery(tmp_path: Path) -> None:
     runtime.repository.register_active_wiki("dewiki")
 
     assert resolve_target_wikis(runtime, "frwiki") == ["frwiki"]
+
+
+class FakeMediaWiki:
+    def __init__(self, pages: dict[int, tuple[int, int]]) -> None:
+        self.pages = pages
+        self.calls: list[list[int]] = []
+
+    def resolve_page_ids(self, _wiki: str, page_ids: list[int]):
+        from wikipeople.clients import PageMetadata
+
+        self.calls.append(list(page_ids))
+        return [
+            PageMetadata(page_id, revision_id, f"Page {page_id}", namespace)
+            for page_id, (revision_id, namespace) in self.pages.items()
+            if page_id in page_ids
+        ]
+
+
+def test_an_article_a_reader_opened_is_rechecked_against_its_current_text(
+    tmp_path: Path,
+) -> None:
+    """Nothing brings a once-computed page back today, and its reader is the likeliest to return."""
+    from wikipeople.models import utcnow
+    from wikipeople.prewarm import prewarm_requested
+
+    runtime = _runtime(tmp_path)
+    runtime.repository.record_page_request("frwiki", 100)
+    runtime.repository.save_result(
+        {
+            "wiki": "frwiki",
+            "page_id": 100,
+            "revision_id": 200,
+            "algorithm_version": runtime.settings.algorithm_version,
+            "title": "France",
+            "metric": "test-metric",
+            "contributors": [],
+            "distinct_contributors": 0,
+            "count_limited": False,
+            "countable_tokens": 10,
+            "wikiwho_revision_id": 200,
+            "computed_at": utcnow() - timedelta(days=30),
+        }
+    )
+    mediawiki = FakeMediaWiki({100: (250, 0)})
+
+    assert prewarm_requested(runtime, mediawiki, "frwiki") == 1
+
+    assert mediawiki.calls == [[100]]
+    work = runtime.repository.get_work("frwiki", 100, 250, runtime.settings.algorithm_version)
+    assert work is not None and work.priority == 50
+
+
+def test_a_page_still_on_the_revision_its_answer_describes_costs_nothing(tmp_path: Path) -> None:
+    from wikipeople.models import utcnow
+    from wikipeople.prewarm import prewarm_requested
+
+    runtime = _runtime(tmp_path)
+    runtime.repository.record_page_request("frwiki", 100)
+    runtime.repository.save_result(
+        {
+            "wiki": "frwiki",
+            "page_id": 100,
+            "revision_id": 200,
+            "algorithm_version": runtime.settings.algorithm_version,
+            "title": "France",
+            "metric": "test-metric",
+            "contributors": [],
+            "distinct_contributors": 0,
+            "count_limited": False,
+            "countable_tokens": 10,
+            "wikiwho_revision_id": 200,
+            "computed_at": utcnow() - timedelta(days=30),
+        }
+    )
+
+    assert prewarm_requested(runtime, FakeMediaWiki({100: (200, 0)}), "frwiki") == 0
+
+
+def test_a_page_recomputed_this_week_is_left_to_settle(tmp_path: Path) -> None:
+    """A heavily edited article would otherwise take the whole budget by itself."""
+    from wikipeople.models import utcnow
+    from wikipeople.prewarm import prewarm_requested
+
+    runtime = _runtime(tmp_path)
+    runtime.repository.record_page_request("frwiki", 100)
+    runtime.repository.save_result(
+        {
+            "wiki": "frwiki",
+            "page_id": 100,
+            "revision_id": 200,
+            "algorithm_version": runtime.settings.algorithm_version,
+            "title": "France",
+            "metric": "test-metric",
+            "contributors": [],
+            "distinct_contributors": 0,
+            "count_limited": False,
+            "countable_tokens": 10,
+            "wikiwho_revision_id": 200,
+            "computed_at": utcnow() - timedelta(hours=6),
+        }
+    )
+
+    assert prewarm_requested(runtime, FakeMediaWiki({100: (250, 0)}), "frwiki") == 0
+
+
+def test_a_page_that_left_the_main_namespace_is_skipped(tmp_path: Path) -> None:
+    from wikipeople.prewarm import prewarm_requested
+
+    runtime = _runtime(tmp_path)
+    runtime.repository.record_page_request("frwiki", 100)
+
+    assert prewarm_requested(runtime, FakeMediaWiki({100: (250, 3)}), "frwiki") == 0

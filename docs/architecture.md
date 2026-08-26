@@ -158,8 +158,9 @@ See [ADR-0001](decisions/0001-attribution-policy.md).
 | Priority | Source | Purpose |
 | --- | --- | --- |
 | 100 | Live gadget cache miss | Serve demonstrated reader demand first |
-| 50 | Union of seven available daily top-1000 lists, per active wiki | Keep likely requests warm |
-| 10 | Resumable alphabetical backfill, opt-in wikis only | Grow long-tail coverage without starving demand |
+| 50 | Union of seven available daily top-1000 lists, plus articles readers opened in the last month, per active wiki | Keep likely requests warm |
+| 10 | Demand-ordered backfill, opt-in wikis only | Grow long-tail coverage without starving demand |
+| 5 | Retry of answers that fell back to edit counts | Replace a weak answer if WikiWho has since indexed the revision |
 
 Workers retry transient failures with exponential backoff capped at six hours. A lease makes a
 job recoverable after a worker crash. Two worker replicas are the conservative starting point;
@@ -174,6 +175,13 @@ cancel the rest of the run.
 Prewarm cost therefore grows with the number of wikis readers actually use, bounded at 1000 pages
 per wiki per day and further reduced by the freshness check. Backfill cost does not grow at all
 unless an operator opts a wiki in.
+
+Backfill order is demand, not size. A daily job reads one published `pageview_complete` dump and
+keeps the most-read page ids per opted-in wiki; the API request path marks the ids a reader
+actually opened; the backfill ranks the second above the first and falls back to descending page
+length once the ranking is spent. That ranking is also what the P5 sweep walks over, so the
+answers retried first are the ones somebody is likely to see. See
+[ADR-0010](decisions/0010-demand-and-usage-counters.md) for the bounds those two counters carry.
 
 ## Millions of pages
 

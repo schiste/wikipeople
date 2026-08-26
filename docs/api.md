@@ -220,7 +220,11 @@ produced at least one real result, or once an operator lists it in `PREWARM_WIKI
   enablement, `["*"]` by default), `active_wikis` (wikis that have produced a result and are
   therefore prewarmed), and `opted_out` (articles covered by each wiki's opt-out list), and `standing`
   (per wiki, how many named accounts are tracked and how many carry a block or a lock — not how
-  many names are withheld, which depends on a threshold applied per response). Do not scrape at high frequency because an exact result count can become
+  many names are withheld, which depends on a threshold applied per response), `metrics` (how
+  many cached results carry each attribution metric, so the share still on the edit-count
+  fallback is visible), `demand` (per wiki, how many pages are ranked for the backfill, how many
+  are still waiting, and how many were asked for by a reader), and `usage` (the last seven days
+  of answers per day, per wiki and per outcome). Do not scrape at high frequency because an exact result count can become
   expensive on a large InnoDB table.
 - `GET /docs`: generated OpenAPI interface. This documents HTTP structure, while this file
   documents behavioral guarantees.
@@ -231,3 +235,10 @@ CORS permits Wikipedia origins, desktop and mobile, through `CORS_ORIGIN_REGEX`;
 adds exact origins on top. CORS is not authentication; scripted clients can still call the public
 API, and that was equally true when a single origin was allowed. Responses contain no reader data. Operational access logs
 must not be used to reconstruct reading histories.
+
+The `demand` and `usage` figures in `/v1/stats` are counters, not a log. They record how many
+answers a wiki was given on a day and how many times an article was asked for; they hold no
+actor, no address, no session, no ordering and no timestamp finer than a day, so no reading
+history can be reconstructed from them. They expire on the same schedule as the rest of the
+cache. [ADR-0010](decisions/0010-demand-and-usage-counters.md) records what they may not
+become.

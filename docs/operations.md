@@ -159,6 +159,23 @@ start; no migration is required either. Its environment controls are:
   backfill reads them to order its work; without them it falls back to title order.
 - `CORS_ORIGIN_REGEX` (default matches every Wikipedia, desktop and mobile).
 
+The demand release adds the `page_demand` and `usage_counters` tables, which `create_all()`
+creates on first start; no migration is required. Its controls are:
+
+- `PAGEVIEW_DUMP_ROOT` (default `/public/dumps/public/other/pageview_complete`): the NFS mount
+  the `demand` job reads. The job logs and stops when the path is absent, which is what makes it
+  a no-op off Toolforge without needing a flag to say so.
+- `PAGEVIEW_LOOKBACK_DAYS` (default `5`): how far back to look for the newest published day.
+- `PAGEVIEW_MINIMUM_VIEWS` (default `5`): a memory bound, not a threshold of merit. Raise it if
+  the job is killed for memory on a large wiki; lower it only with more memory in `jobs.yaml`.
+- `DEMAND_TOP_PAGES` (default `50000`): how much of one day's ranking is kept per wiki.
+- `REQUESTED_PREWARM_DAYS` / `REQUESTED_PREWARM_LIMIT` (default `30` / `2000`): how far back and
+  how wide the daily pass over articles readers actually opened reaches.
+- `REQUESTED_RECOMPUTE_SECONDS` (default `604800`): how often such a page may be re-checked
+  against its current revision. Below this it is left to settle whatever it does on the wiki.
+- `RECOMPUTE_BATCH_SIZE` / `RECOMPUTE_MIN_AGE_SECONDS` (default `200` / `1209600`): the size of
+  one weak-metric sweep and how long a fallback answer must have sat before it is retried.
+
 Toolforge environment-variable configuration is deployment state, not source code. Record the
 variable names—not their values—in the maintainer handoff.
 
@@ -207,6 +224,48 @@ Action API in title order, under its own separate cursor key.
 Redirects are refused twice, because filtering the source is not enough: a reader opening a
 redirect makes the endpoint enqueue it, and the endpoint may not call MediaWiki to find out. The
 worker has already fetched the page when it decides, so that is where the second refusal lives.
+
+### Why demand comes before size
+
+Size is a proxy for readership and a poor one. `pageview_complete`, published daily, is
+readership itself, and it carries page ids — so a ranking arrives already keyed the way the
+queue wants it, with no title to resolve. The `demand` job streams one day's file (640 MB, 55
+million lines, about two and a half minutes), keeps the top `DEMAND_TOP_PAGES` per wiki above
+`PAGEVIEW_MINIMUM_VIEWS`, and adds them to `page_demand`. Views accumulate across days, so a
+steady readership outranks a one-day spike.
+
+The API request path increments a second column on the same rows, and the backfill ranks by that
+one first: a view says the world reads this article, a request says somebody running the gadget
+opened it and waited. There are far fewer of the second and they are what a warm cache is for.
+See [ADR-0010](decisions/0010-demand-and-usage-counters.md) for what these columns may and may
+not hold.
+
+Each hourly batch takes the top of the ranking, asks the replica for those pages' current
+revisions in one round trip, enqueues them at P10, and marks them handed over. Marking rather
+than a cursor, because the ranking changes every day and a keyset cursor over a moving ranking
+skips rows and repeats others; marked after the enqueue rather than before, so a run that dies
+against the replica retries next hour instead of dropping a batch for a quarter. A page the
+replica no longer returns — deleted, or turned into a redirect since the dump — is marked too,
+or it would sit at the top of the ranking for ever.
+
+When the ranking runs dry the same run spends its remaining batches on the size walk above, so a
+deployment with no pageview data yet behaves exactly as it did before. `page_demand` rows past
+`PAGE_FRESHNESS_SECONDS` are put back in line by the daily job; the queue still refuses to redo
+work that is fresh, so this decides eligibility, not recomputation.
+
+### Retrying the answers that fell back to edit counts
+
+14% of frwiki's cache carries `mediawiki-revision-count`: WikiWho had not indexed the revision,
+so the ladder fell to counting edits ([ADR-0005](decisions/0005-attribution-ladder.md)). Nothing
+ever revisited those — a revision WikiWho indexes next week raises no event — so a page that
+missed by hours kept its weaker answer for as long as it stayed cached.
+
+`weak-metric-recompute` is the listener. It sweeps `attribution_results` by primary key, a
+cursor per (algorithm version, metric) in `app_state`, and re-queues weak rows at P5 against
+**the same revision** they describe, so a better answer replaces the row rather than sitting
+beside it. Rows recomputed within `RECOMPUTE_MIN_AGE_SECONDS` are skipped, which makes the job
+self-limiting: a retry that lands on the same rung refreshes `computed_at` and drops out until
+the window passes. Reaching the end of the table resets the cursor to zero rather than stopping.
 
 There is no cap on how many pages may be cached, and no eviction. `cache-cleanup` only removes
 superseded duplicates and old dead queue rows; a current result is never deleted to make room.
@@ -271,8 +330,10 @@ Then inspect webservice logs and check that both worker replicas are running.
 | --- | --- | --- |
 | `attribution-worker` | Continuous, two replicas | Claims durable jobs and calls WikiWho |
 | `popular-prewarm` | Daily | Per active wiki, scans backward to enqueue seven available top-1000 lists at P50 |
-| `gradual-backfill` | Hourly | Per `BACKFILL_WIKIS` entry, enqueues one resumable batch of the heaviest uncached articles at P10 |
-| `cache-cleanup` | Weekly | Removes old failed work and superseded result revisions |
+| `demand-ranking` | Daily, 09:35 UTC | Streams one pageview dump into `page_demand` for `BACKFILL_WIKIS` entries; needs `mount: all` and 2 GiB |
+| `gradual-backfill` | Hourly | Per `BACKFILL_WIKIS` entry, enqueues one batch of the most-wanted uncached articles at P10, falling back to the heaviest |
+| `weak-metric-recompute` | Daily | Re-queues `RECOMPUTE_BATCH_SIZE` edit-count answers at P5 in case WikiWho has indexed them since |
+| `cache-cleanup` | Weekly | Removes old failed work, superseded result revisions, and expired demand and usage rows |
 | `optout-sync` | Every 15 minutes | Per active wiki, materialises the on-wiki opt-out list into `page_optout` |
 | `standing-sync` | Hourly | Per active wiki, refreshes block and lock status for named accounts into `contributor_standing` |
 
@@ -282,15 +343,23 @@ capacity and observed latency justify it.
 
 Prewarm runtime grows with the number of active wikis, so watch its duration as wikis are
 discovered. Each wiki is isolated: one unavailable wiki logs and is skipped rather than cancelling
-the run. `gradual-backfill` does nothing while `BACKFILL_WIKIS` is empty.
+the run. `gradual-backfill` does nothing while `BACKFILL_WIKIS` is empty, and so does `demand-ranking`.
+
+`demand-ranking` is the only job that reads the dumps mount. Build-service images do not get it
+by default, so its `mount: all` is load-bearing, and so is its `memory: 2Gi`: a day of one large
+Wikipedia is held in a dictionary while the file streams. A missing dump is logged and skipped,
+and a day already recorded is skipped too, so a re-run costs nothing.
 
 ## Monitoring
 
 Check:
 
 - `/healthz` for database reachability;
-- `/v1/stats` occasionally for queue growth, dead items, the `active_wikis` list, and the
-  per-wiki `opted_out` counts — a count that drops to zero on a wiki that had entries means the
+- `/v1/stats` occasionally for queue growth, dead items, the `active_wikis` list, `usage` (the
+  last seven days of answers per wiki and outcome — a rising `unsupported` count means readers
+  are loading the script on projects this deployment does not serve), `demand` (how much ranking
+  the backfill has left), `metrics` (how much of the cache is still on the edit-count fallback),
+  and the per-wiki `opted_out` counts — a count that drops to zero on a wiki that had entries means the
   list page was blanked, moved, or is being read from the wrong title;
 - `/v2/{wiki}/pages/{page_id}?revision_id={revision_id}` for `is_fresh`, `refreshing`, and the
   `X-WikiPeople-Source-Revision` header on a known article;

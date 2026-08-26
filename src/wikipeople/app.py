@@ -47,6 +47,24 @@ def _if_none_match(header: str | None, etag: str) -> bool:
     return False
 
 
+#: How much of the usage history `/v1/stats` shows. A week is enough to see whether a
+#: day was quiet, and short enough that the endpoint stays a fixed size as the counters
+#: accumulate behind it.
+STATS_USAGE_DAYS = 7
+
+
+def _counted_wiki(runtime: Runtime, wiki: str) -> str:
+    """The name a refused request is counted under.
+
+    A request for a wiki this deployment does not serve carries whatever the caller put
+    in the path, and counters are keyed by wiki, so counting it verbatim would let
+    anyone create rows by inventing names. A real Wikipedia that WikiWho covers is
+    counted under its own name -- that is the useful signal, an edition turned off that
+    people are asking for -- and everything else under a single bucket.
+    """
+    return wiki if runtime.resolver.is_capable(wiki) else "-"
+
+
 def _nameable_contributors(
     runtime: Runtime, wiki: str, contributors: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -169,6 +187,9 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             "cache": app_runtime.repository.stats(),
             "opted_out": app_runtime.repository.optout_counts(),
             "standing": app_runtime.repository.standing_counts(),
+            "metrics": app_runtime.repository.metric_counts(),
+            "demand": app_runtime.repository.demand_counts(),
+            "usage": app_runtime.repository.usage_since(STATS_USAGE_DAYS),
         }
 
     @app.get("/v1/{wiki}/pages/{page_id}", response_model=None)
@@ -181,9 +202,15 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     ) -> Any:
         settings = app_runtime.settings
         if not app_runtime.resolver.is_enabled(wiki, settings.supported_wikis):
+            app_runtime.repository.count_request(_counted_wiki(app_runtime, wiki), "unsupported")
             raise HTTPException(status_code=404, detail="Wiki non pris en charge")
         if page_id <= 0:
             raise HTTPException(status_code=422, detail="page_id doit être positif")
+
+        # Two counter rows per request, and nothing else: which article was asked
+        # about, and how the answer turned out. Both are aggregates that existed before
+        # this request did, so neither can be read back as a visit.
+        app_runtime.repository.record_page_request(wiki, page_id)
 
         result = app_runtime.repository.get_result(
             wiki, page_id, revision_id, settings.algorithm_version
@@ -211,6 +238,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 "ETag": _etag(payload),
                 "X-WikiPeople-Algorithm": settings.algorithm_version,
             }
+            # Counted before the validator check, because a 304 is an answer served.
+            app_runtime.repository.count_request(wiki, "ready")
             if _if_none_match(request.headers.get("if-none-match"), headers["ETag"]):
                 return Response(status_code=304, headers=headers)
             response.headers.update(headers)
@@ -224,6 +253,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             if not work.is_permanent and retry_at <= utcnow():
                 app_runtime.repository.revive(work.id, priority=100)
             else:
+                app_runtime.repository.count_request(wiki, "unavailable")
                 return JSONResponse(
                     status_code=503,
                     headers={"Cache-Control": "no-store", "Retry-After": "3600"},
@@ -243,6 +273,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             algorithm_version=settings.algorithm_version,
             priority=100,
         )
+        app_runtime.repository.count_request(wiki, "pending")
         return JSONResponse(
             status_code=202,
             headers={"Cache-Control": "no-store", "Retry-After": "30"},
@@ -265,9 +296,12 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     ) -> Any:
         settings = app_runtime.settings
         if not app_runtime.resolver.is_enabled(wiki, settings.supported_wikis):
+            app_runtime.repository.count_request(_counted_wiki(app_runtime, wiki), "unsupported")
             raise HTTPException(status_code=404, detail="Wiki non pris en charge")
         if page_id <= 0:
             raise HTTPException(status_code=422, detail="page_id doit être positif")
+
+        app_runtime.repository.record_page_request(wiki, page_id)
 
         result = app_runtime.repository.get_latest_result(wiki, page_id, settings.algorithm_version)
         if result is not None:
@@ -327,6 +361,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             }
             # The enqueue above has already happened, so a 304 still keeps a stale page
             # moving towards being recomputed. Only the body is spared.
+            # Counted before the validator check, because a 304 is an answer served.
+            app_runtime.repository.count_request(wiki, "ready")
             if _if_none_match(request.headers.get("if-none-match"), headers["ETag"]):
                 return Response(status_code=304, headers=headers)
             response.headers.update(headers)
@@ -340,6 +376,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             if not work.is_permanent and retry_at <= utcnow():
                 app_runtime.repository.revive(work.id, priority=100)
             else:
+                app_runtime.repository.count_request(wiki, "unavailable")
                 return JSONResponse(
                     status_code=503,
                     headers={"Cache-Control": "no-store", "Retry-After": "3600"},
@@ -360,6 +397,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             priority=100,
             freshness_seconds=settings.page_freshness_seconds,
         )
+        app_runtime.repository.count_request(wiki, "pending")
         return JSONResponse(
             status_code=202,
             headers={"Cache-Control": "no-store", "Retry-After": "30"},

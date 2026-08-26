@@ -65,6 +65,9 @@ policy, update behavior, privacy, and the path toward millions of articles.
 - [ADR-0009](docs/decisions/0009-sanctioned-contributor-visibility.md): why an account the wiki
   has lastingly excluded is not named, why duration draws the line, and why a block and a lock
   that say the same thing are read in opposite directions.
+- [ADR-0010](docs/decisions/0010-demand-and-usage-counters.md): what is recorded about being
+  used, why it is two counter tables and not a log, and how the backfill came to be ordered by
+  readership rather than by article size.
 - [Contributing](CONTRIBUTING.md): local workflow and change checklist.
 - [Agent guide](AGENTS.md): repository invariants and commands for coding agents.
 
