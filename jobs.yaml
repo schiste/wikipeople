@@ -21,7 +21,7 @@
   command: demand
   schedule: "35 9 * * *"
   timeout: 3600
-  memory: 2Gi
+  mem: 2Gi
   mount: all
   emails: onfailure
 
