@@ -430,3 +430,56 @@ def test_a_backgrounded_tab_retries_when_it_is_looked_at_rather_than_on_a_clock(
     # A foreground tab must not wait for an event that will never fire.
     assert "document.visibilityState !== 'hidden'" in visible
     assert "removeEventListener" in visible
+
+
+def test_a_name_the_api_did_not_link_is_not_drawn_as_a_link() -> None:
+    """The blue link to a user page that does not exist, fixed on the drawing side.
+
+    Whether the page exists is answered on the server — asking here would be one extra
+    API request per article view — so the gadget's whole job is to believe the answer
+    and build an element that makes no promise.
+    """
+    normalize = GADGET_SOURCE.split("function normalizeContributionData(", 1)[1].split("\n\t}", 1)[
+        0
+    ]
+    # An older API, or a wiki whose standing table is empty, sends nothing. That is not
+    # "unlinked", it is "nobody looked", and the pre-existing behaviour is the link.
+    assert "display: editor.display || 'link'" in normalize
+
+    link = GADGET_SOURCE.split("function createEditorLink(", 1)[1].split("\n\t}", 1)[0]
+    assert "document.createElement( isLinked ? 'a' : 'span' )" in link
+    # The href is inside the linked branch, so a span can never acquire one.
+    assert link.split("if ( isLinked ) {", 1)[1].split("}", 1)[0].count("node.href") == 1
+
+
+def test_an_unlinked_name_is_never_explained_to_the_reader() -> None:
+    """One word, three causes, and the gadget must not guess which.
+
+    "Unlinked" covers a missing user page, a rename, and a name the wiki asked to be
+    shown without a link. A tooltip saying why would turn the third into a public
+    accusation, which is exactly what withholding the link was chosen over.
+    """
+    link = GADGET_SOURCE.split("function createEditorLink(", 1)[1].split("\n\t}", 1)[0]
+    # The only thing said about an unlinked name is its share, which is true whichever
+    # cause applied. Everything else is pushed by the linked branch alone.
+    assert link.count("tooltip.push(") == 2
+    assert "wikipeople-user-title" in link.split("if ( isLinked ) {", 1)[1].split("}", 1)[0]
+    for word in ("sanction", "block", "banni", "bloqu", "renamed", "vanished", "supprim"):
+        assert word not in link.lower()
+
+
+def test_an_anonymised_account_is_credited_as_an_account_rather_than_as_a_number() -> None:
+    """A rename leaves "Renamed user 4501e2a3c" behind, and it really did write the text.
+
+    Dropping it would move its share into "and 46 others" and misattribute the article,
+    so the credit stays and only the label changes.
+    """
+    link = GADGET_SOURCE.split("function createEditorLink(", 1)[1].split("\n\t}", 1)[0]
+    assert "mw.message( 'wikipeople-anonymised-account' ).text()" in link
+    assert "wikipeople-anonymised" in link
+    # Both built-in bundles carry it, so a reader on either language sees a phrase
+    # rather than the key when no on-wiki translation exists yet.
+    assert GADGET_SOURCE.count("'wikipeople-anonymised-account':") == 2
+    assert ".wikipeople-anonymised" in GADGET_STYLES
+    # An unlinked name keeps the weight a linked one has, so the list stays one list.
+    assert ".wikipeople-unlinked" in GADGET_STYLES

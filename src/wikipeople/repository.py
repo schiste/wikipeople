@@ -18,11 +18,12 @@ from wikipeople.models import (
     PageDemand,
     PageOptOut,
     UsageCounter,
+    WikiDisplayPolicy,
     WorkItem,
     utcnow,
     utctoday,
 )
-from wikipeople.policy import AccountStanding
+from wikipeople.policy import AccountStanding, DisplayPolicy
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,21 @@ class StandingRecord:
 
     standing: AccountStanding
     lock_checked_at: datetime | None
+    has_user_page: bool | None = None
+
+
+@dataclass(frozen=True)
+class ContributorFacts:
+    """Everything the serve path knows about one account, from one query.
+
+    Two unrelated facts travel together because one lookup answers both and the response
+    needs both: what the wiki has decided about this account, and whether the user page a
+    credit would link to exists. They are kept as separate fields rather than merged into
+    `AccountStanding`, which describes decisions; a user page existing is not one.
+    """
+
+    standing: AccountStanding
+    has_user_page: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -436,12 +452,13 @@ class Repository:
                     row.synced_at = now
         return added, len(removed)
 
-    def standing_for(self, wiki: str, user_ids: Sequence[int]) -> dict[int, AccountStanding]:
+    def contributor_facts(self, wiki: str, user_ids: Sequence[int]) -> dict[int, ContributorFacts]:
         """Return what is known about these accounts. On the serve path, so it stays one query.
 
         Called with at most three IDs — the accounts a ready response would name — and
         skipped entirely when there are none. An ID missing from the answer means nobody
-        has looked at that account yet, which `is_nameable_account` treats as nameable.
+        has looked at that account yet, which `contributor_display` treats as an ordinary
+        linked name rather than as a finding.
         """
         if not user_ids:
             return {}
@@ -453,23 +470,70 @@ class Repository:
                 )
             ).all()
         return {
-            row.user_id: AccountStanding(
-                user_id=row.user_id,
-                username=row.username,
-                blocked_at=row.blocked_at,
-                block_expires_at=row.block_expires_at,
-                block_partial=row.block_partial,
-                block_reason=row.block_reason,
-                globally_locked=row.globally_locked,
-                lock_reason=row.lock_reason,
+            row.user_id: ContributorFacts(
+                standing=AccountStanding(
+                    user_id=row.user_id,
+                    username=row.username,
+                    blocked_at=row.blocked_at,
+                    block_expires_at=row.block_expires_at,
+                    block_partial=row.block_partial,
+                    block_reason=row.block_reason,
+                    globally_locked=row.globally_locked,
+                    lock_reason=row.lock_reason,
+                ),
+                has_user_page=row.has_user_page,
             )
             for row in rows
         }
 
+    def display_policy(self, wiki: str) -> DisplayPolicy:
+        """What this wiki has asked to be shown, or the defaults if it has asked nothing.
+
+        On the serve path for every ready response, so it is a primary-key lookup and
+        nothing more — the same shape as `is_opted_out`, and absent for the same reason
+        in the overwhelmingly common case.
+        """
+        with self.database.session() as session:
+            row = session.get(WikiDisplayPolicy, wiki)
+        if row is None:
+            return DisplayPolicy()
+        return DisplayPolicy(
+            show_contributor_names=row.show_contributor_names,
+            sanctioned_accounts=row.sanctioned_accounts,
+            anonymised_accounts=row.anonymised_accounts,
+        )
+
+    def save_display_policy(self, wiki: str, policy: DisplayPolicy) -> bool:
+        """Store one wiki's policy. Returns whether it differs from what was stored.
+
+        Only ever called after the page has actually been read. A failed read must raise
+        long before it reaches here rather than arrive as a defaults object and quietly
+        undo whatever the wiki had decided — the same rule the opt-out list runs on.
+        """
+        with self.database.session() as session, session.begin():
+            row = session.get(WikiDisplayPolicy, wiki)
+            changed = row is None or (
+                row.show_contributor_names,
+                row.sanctioned_accounts,
+                row.anonymised_accounts,
+            ) != (
+                policy.show_contributor_names,
+                policy.sanctioned_accounts,
+                policy.anonymised_accounts,
+            )
+            if row is None:
+                row = WikiDisplayPolicy(wiki=wiki)
+                session.add(row)
+            row.show_contributor_names = policy.show_contributor_names
+            row.sanctioned_accounts = policy.sanctioned_accounts
+            row.anonymised_accounts = policy.anonymised_accounts
+            row.synced_at = utcnow()
+        return changed
+
     def standing_records(self, wiki: str) -> dict[int, StandingRecord]:
         """Everything stored about one wiki's tracked accounts, for the sync job.
 
-        Separate from `standing_for` because the two callers want different things. The
+        Separate from `contributor_facts` because the two callers want different things. The
         serve path wants three accounts and no bookkeeping; the job wants the whole wiki
         including `lock_checked_at`, which is how it knows whose turn it is.
         """
@@ -490,6 +554,7 @@ class Repository:
                     lock_reason=row.lock_reason,
                 ),
                 lock_checked_at=row.lock_checked_at,
+                has_user_page=row.has_user_page,
             )
             for row in rows
         }
@@ -581,6 +646,7 @@ class Repository:
                 row.globally_locked = standing.globally_locked
                 row.lock_reason = standing.lock_reason
                 row.lock_checked_at = record.lock_checked_at
+                row.has_user_page = record.has_user_page
                 row.synced_at = now
         return added, len(removed)
 

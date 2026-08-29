@@ -6,4 +6,5 @@ demand: python -m wikipeople.pageviews
 recompute: python -m wikipeople.recompute
 cleanup: python -m wikipeople.cleanup
 optout: python -m wikipeople.optout
+display: python -m wikipeople.displaypolicy
 standing: python -m wikipeople.standing

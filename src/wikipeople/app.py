@@ -4,6 +4,7 @@ import hashlib
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import UTC, timedelta
 from typing import Any
 
@@ -12,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from wikipeople.models import AttributionResult, utcnow
-from wikipeople.policy import is_nameable_account
+from wikipeople.policy import DISPLAY_LINK, DisplayPolicy, contributor_display
 from wikipeople.runtime import Runtime, build_runtime
 
 
@@ -65,24 +66,38 @@ def _counted_wiki(runtime: Runtime, wiki: str) -> str:
     return wiki if runtime.resolver.is_capable(wiki) else "-"
 
 
-def _nameable_contributors(
-    runtime: Runtime, wiki: str, contributors: list[dict[str, Any]]
-) -> list[dict[str, Any]]:
-    """Drop the accounts this wiki has put lastingly out of the community.
+def _effective_policy(runtime: Runtime, wiki: str) -> DisplayPolicy:
+    """This wiki's display policy, with the operator's off switch folded into it.
 
-    Applied here rather than in the worker for the same reason the opt-out is: a
-    sanction is a fact about a person that changes without anyone touching the article.
-    Filtering when the answer is built means a block imposed this morning takes effect
-    within the hour, and lifting one restores the name just as fast, with nothing
-    recomputed and `algorithm_version` unmoved. ADR-0009.
+    `HIDE_SANCTIONED_CONTRIBUTORS=false` is not a fourth policy value; it is the whole
+    rule switched off, which is the same thing as naming sanctioned accounts like any
+    other. Expressing it as a policy rather than as a branch keeps one place where the
+    question "how should this account appear?" is answered.
+    """
+    policy = runtime.repository.display_policy(wiki)
+    if runtime.settings.hide_sanctioned_contributors:
+        return policy
+    return replace(policy, sanctioned_accounts=DISPLAY_LINK)
+
+
+def _presented_contributors(
+    runtime: Runtime, wiki: str, contributors: list[dict[str, Any]], policy: DisplayPolicy
+) -> list[dict[str, Any]]:
+    """Decide how each named account appears, dropping the ones that do not.
+
+    Applied here rather than in the worker for the same reason the opt-out is: every
+    input is a fact about a person or about a wiki's mind, and all of them change
+    without anyone touching the article. Deciding when the answer is built means a block
+    imposed this morning takes effect within the hour, a policy edited on the wiki takes
+    effect on the next sync, and both reverse just as fast, with nothing recomputed and
+    `algorithm_version` unmoved. ADR-0009 and ADR-0011.
 
     The list shrinks; it is not backfilled from a fourth contributor, because only three
     were ever stored. Naming two people instead of three is a smaller loss than making
     every response depend on a recomputation, and the missing share is not lost — it
     moves into `other_contributors`.
     """
-    settings = runtime.settings
-    if not settings.hide_sanctioned_contributors or not contributors:
+    if not contributors:
         return contributors
 
     user_ids = [
@@ -90,14 +105,24 @@ def _nameable_contributors(
         for contributor in contributors
         if isinstance(contributor.get("user_id"), int)
     ]
-    standings = runtime.repository.standing_for(wiki, user_ids)
-    threshold = settings.max_visible_block_seconds_for(wiki)
+    facts = runtime.repository.contributor_facts(wiki, user_ids)
+    threshold = runtime.settings.max_visible_block_seconds_for(wiki)
     now = utcnow()
-    return [
-        contributor
-        for contributor in contributors
-        if is_nameable_account(standings.get(contributor.get("user_id")), threshold, now)
-    ]
+
+    presented: list[dict[str, Any]] = []
+    for contributor in contributors:
+        known = facts.get(contributor.get("user_id"))
+        display = contributor_display(
+            username=str(contributor.get("username", "")),
+            standing=known.standing if known else None,
+            has_user_page=known.has_user_page if known else None,
+            policy=policy,
+            max_visible_block_seconds=threshold,
+            now=now,
+        )
+        if display is not None:
+            presented.append({**contributor, "display": display})
+    return presented
 
 
 def _attribution_fields(
@@ -111,17 +136,28 @@ def _attribution_fields(
     "by Alice and 46 others" rather than disappearing: the count is not a name, and
     losing it would hide that the article has a history at all.
 
+    A wiki that has turned names off entirely lands in the same shape as an opt-out and
+    is still not one: `opted_out` stays false, because it is about this article and
+    nothing about this article was decided. What the reader sees is identical; what a
+    client can conclude about the page is not.
+
     Only `opted_out` is reported. There is no matching flag for a withheld name, on
     purpose — it would be a machine-readable announcement that one of this article's
-    main authors is banned, which is a worse disclosure than the credit it replaces.
+    main authors is banned, which is a worse disclosure than the credit it replaces. The
+    `display` value each surviving contributor carries is not that flag either: `unlink`
+    has several causes and, on the default policy, only ever means the account has no
+    user page.
 
     Nothing is deleted. The stored row keeps its contributors — they are public page
-    history — and both rules govern what is presented, which is what makes them take
-    effect, and be undone, without recomputing anything.
+    history — and every rule here governs what is presented, which is what makes them
+    take effect, and be undone, without recomputing anything.
     """
     opted_out = runtime.repository.is_opted_out(wiki, page_id)
+    policy = _effective_policy(runtime, wiki)
     contributors: list[dict[str, Any]] = (
-        [] if opted_out else _nameable_contributors(runtime, wiki, list(result.contributors))
+        []
+        if opted_out or not policy.show_contributor_names
+        else _presented_contributors(runtime, wiki, list(result.contributors), policy)
     )
     return {
         "contributors": contributors,

@@ -234,3 +234,138 @@ def is_nameable_account(
         return True
     duration = standing.block_expires_at - standing.blocked_at
     return duration.total_seconds() <= max_visible_block_seconds
+
+
+# The placeholder a rename leaves behind. A global rename that the account holder does
+# not name themselves — which in practice means the right to vanish — replaces the
+# username with "Renamed user 4501e2a3c" or "Vanished user 12345", and that string then
+# appears in the page history as the author of everything they wrote. It is a real
+# account and it really wrote the text, so it must not be dropped: hiding it would move
+# its share into "and 46 others" and misattribute the article. But printing it credits
+# the article to a number, and links to a user page that was deleted on the way out.
+#
+# Anchored at both ends, and the tail is one alphanumeric token, because the cost of the
+# two errors is not symmetric. A placeholder read as an ordinary name is shown unlinked
+# and looks slightly odd; an ordinary name read as a placeholder erases a real person's
+# credit. "Vanished userland fan" is a username this could plausibly have eaten, and does
+# not, at the price of missing a form nobody has seen yet. Either separator is a space
+# in the same name — a title carries underscores in a URL and spaces in an answer.
+ANONYMISED_NAME_PATTERN = re.compile(r"(?:renamed|vanished)[ _]?user[ _]?[0-9a-z]*", re.IGNORECASE)
+
+#: How a name may be presented once it is shown at all. `link` is the ordinary case.
+#: `unlink` is the name with no link, and it is deliberately one value covering several
+#: different reasons — see `contributor_display`. `label` replaces the name with generic
+#: wording, for an account whose name is a placeholder rather than a name.
+DISPLAY_LINK = "link"
+DISPLAY_UNLINK = "unlink"
+DISPLAY_LABEL = "label"
+
+#: Only ever a policy value, never a `display` value: an account a wiki has chosen to
+#: hide is absent from the list, which is not the same as being in it marked hidden.
+DISPLAY_HIDE = "hide"
+
+SHOW = "show"
+
+#: Every option the on-wiki policy page can set, and the values each one accepts. A key
+#: that is not here is not read, and a value outside its list is not obeyed and not
+#: half-obeyed: the default applies. This is the server twin of the gadget's
+#: `ALLOWED_VALUES`, and for the same reason — a page carrying a typo, or copied from a
+#: later revision of the service, must change nothing rather than something unpredictable.
+DISPLAY_POLICY_VALUES: dict[str, tuple[str, ...]] = {
+    "contributor-names": (SHOW, DISPLAY_HIDE),
+    "sanctioned-accounts": (DISPLAY_HIDE, DISPLAY_UNLINK, DISPLAY_LINK),
+    "anonymised-accounts": (DISPLAY_LABEL, DISPLAY_HIDE, DISPLAY_UNLINK, DISPLAY_LINK),
+}
+
+
+def is_anonymised_account(username: str) -> bool:
+    """Return whether a username is the placeholder left behind by a rename.
+
+    A guess about a string, not a fact read from anywhere — CentralAuth does not expose
+    "this name is a placeholder" — so it is written to fail towards leaving a name alone.
+    See `ANONYMISED_NAME_PATTERN`.
+    """
+    return ANONYMISED_NAME_PATTERN.fullmatch(username.strip()) is not None
+
+
+@dataclass(frozen=True)
+class DisplayPolicy:
+    """How much of an attribution a wiki wants shown, as its community decided.
+
+    Every field has a default, and the defaults are what the service does with no page
+    at all — which is what almost every wiki will run, so the defaults are the policy
+    rather than a placeholder for one. ADR-0011 argues them rather than deferring them.
+
+    Not a filter on what is computed. Applied when the response is built, like the
+    opt-out and the sanction rule, so a wiki that changes its mind is served differently
+    within the hour with nothing recomputed and `algorithm_version` unmoved.
+    """
+
+    show_contributor_names: bool = True
+    sanctioned_accounts: str = DISPLAY_HIDE
+    anonymised_accounts: str = DISPLAY_LABEL
+
+
+def normalize_display_policy(values: dict[str, str]) -> DisplayPolicy:
+    """Turn what a page says into a policy, keeping only what it says unambiguously.
+
+    Absence of an instruction is not an instruction: a key the page does not mention
+    keeps its default, and so does a key whose value is not one this understands. That
+    is the same rule the gadget applies to its configuration page and the same reason —
+    "sanctioned-accounts: unlnik" must not become a fourth behaviour nobody wrote.
+    """
+    accepted = {
+        key: value
+        for key, value in values.items()
+        if key in DISPLAY_POLICY_VALUES and value in DISPLAY_POLICY_VALUES[key]
+    }
+    return DisplayPolicy(
+        show_contributor_names=accepted.get("contributor-names", SHOW) == SHOW,
+        sanctioned_accounts=accepted.get("sanctioned-accounts", DisplayPolicy.sanctioned_accounts),
+        anonymised_accounts=accepted.get("anonymised-accounts", DisplayPolicy.anonymised_accounts),
+    )
+
+
+def contributor_display(
+    username: str,
+    standing: AccountStanding | None,
+    has_user_page: bool | None,
+    policy: DisplayPolicy,
+    max_visible_block_seconds: int,
+    now: datetime,
+) -> str | None:
+    """How one account should appear, or None if it should not appear at all.
+
+    Three questions in one place because their answers interact. The first two are
+    policy — what this wiki wants done about a sanctioned account and about a renamed
+    one — and the third is a fact: whether the user page a name would link to exists.
+    Policy chooses between hiding, labelling and naming; the fact only ever decides
+    whether a name that is being shown carries a link.
+
+    Sanction is settled before anonymisation because it is the stronger statement, and
+    because an account can be both: the right to vanish is usually accompanied by a
+    lock, which `is_sanction_lock` already reads as the courtesy it is.
+
+    `unlink` is one value with several causes — a wiki that unlinks sanctioned accounts,
+    a wiki that unlinks renamed ones, and an account with no user page — and that is the
+    point. There is no flag for a withheld name, and there must be no flag that can be
+    read as one; an unlinked name says nothing about why, and on the default policy it
+    only ever means the user page does not exist.
+    """
+    if standing is not None and not is_nameable_account(standing, max_visible_block_seconds, now):
+        chosen = policy.sanctioned_accounts
+    elif is_anonymised_account(username):
+        chosen = policy.anonymised_accounts
+    else:
+        chosen = DISPLAY_LINK
+
+    if chosen == DISPLAY_HIDE:
+        return None
+    if chosen == DISPLAY_LABEL:
+        return DISPLAY_LABEL
+    if chosen == DISPLAY_UNLINK:
+        return DISPLAY_UNLINK
+    # `has_user_page` is None when nobody has looked yet, and an account nobody has
+    # looked at keeps its link: absence of data is not a finding, and a wiki whose first
+    # sync has not run must not lose every link to say so.
+    return DISPLAY_UNLINK if has_user_page is False else DISPLAY_LINK

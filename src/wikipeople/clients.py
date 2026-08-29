@@ -106,6 +106,9 @@ class EditorHistory:
     complete: bool
 
 
+USER_NAMESPACE = 2
+
+
 def _batched(values: Iterable[int], size: int) -> Iterable[list[int]]:
     iterator = iter(values)
     while batch := list(islice(iterator, size)):
@@ -483,6 +486,46 @@ class MediaWikiClient:
                 # rather than trusting the absence of a continuation token.
                 return members[:limit], len(members) > limit
         return members[:limit], True
+
+    def existing_user_pages(self, wiki: str, usernames: list[str]) -> set[str]:
+        """Which of these accounts have a user page, 50 at a time.
+
+        A credit line whose names are blue links promises a page behind each one, and for
+        a great many contributors there is none: the link is red, and the reader who
+        follows it lands on an empty create form. The gadget cannot answer this itself —
+        one extra local API call per article view is exactly the cost the wiki asked it
+        not to impose — so it is answered here, in a job, in batches, once an hour.
+
+        Redirects are deliberately not followed. A user page that redirects elsewhere is
+        still a user page, and following the redirect would only change which title comes
+        back, not whether one exists.
+
+        Sent over POST for the same reason as `resolve_titles`: fifty names fit the API
+        limit but not always a URL once a non-Latin alphabet is percent-encoded.
+        """
+        found: set[str] = set()
+        for start in range(0, len(usernames), 50):
+            batch = usernames[start : start + 50]
+            data = self._action(
+                wiki,
+                {
+                    "action": "query",
+                    "titles": "|".join(f"User:{name}" for name in batch),
+                },
+                method="POST",
+            )
+            for page in data.get("query", {}).get("pages", []):
+                if page.get("invalid") or page.get("missing"):
+                    continue
+                if int(page.get("ns", 0)) != USER_NAMESPACE:
+                    continue
+                # MediaWiki answers with the local namespace name — "Utilisateur:Alice" —
+                # so the prefix is dropped rather than matched. A username cannot itself
+                # contain a colon, which is what makes the first one the separator.
+                _, _, name = str(page.get("title", "")).partition(":")
+                if name:
+                    found.add(name.replace("_", " "))
+        return found
 
     def resolve_titles(self, wiki: str, titles: list[str]) -> list[PageMetadata]:
         """Resolve titles to page metadata, 50 at a time (the Action API limit).

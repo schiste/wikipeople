@@ -81,6 +81,7 @@ class Settings:
     page_stale_while_revalidate_seconds: int
     optout_page: str
     optout_category_limit: int
+    display_policy_page: str
     hide_sanctioned_contributors: bool
     max_visible_block_seconds: int
     max_visible_block_seconds_by_wiki: tuple[tuple[str, int], ...]
@@ -186,6 +187,11 @@ class Settings:
             # category; the sync logs the truncation rather than silently covering part
             # of it, because "half of this category is opted out" is not an opt-out.
             optout_category_limit=int(os.getenv("OPTOUT_CATEGORY_LIMIT", "5000")),
+            # The page a community states its display policy on, resolved the same way
+            # as the opt-out list. Deliberately not a `.json` subpage: MediaWiki locks
+            # those to interface administrators, and a decision about who gets named
+            # must not be one that only an interface administrator can make.
+            display_policy_page=os.getenv("DISPLAY_POLICY_PAGE", "Project:WikiPeople/display"),
             # On by default. Leaving it off would have been the conservative-looking
             # choice, but the default is what almost every wiki will run, so the default
             # is the policy; ADR-0009 argues it out rather than deferring it.

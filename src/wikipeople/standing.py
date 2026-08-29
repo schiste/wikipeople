@@ -7,9 +7,14 @@ so a filtered stored row would go stale for as long as the result stays fresh â€
 ninety days. So the rule is applied when the response is built, and this job is the
 bridge, because the serve path is not allowed to call MediaWiki.
 
-Two facts, two costs. A local block arrives fifty accounts per request and is refreshed
-for every tracked account on every run. A CentralAuth lock costs one request per
-account, so it is refreshed on a rotation and each row remembers when its turn came.
+Three facts, two costs. A local block and the existence of a user page both arrive
+fifty accounts per request, so both are refreshed for every tracked account on every
+run. A CentralAuth lock costs one request per account, so it is refreshed on a rotation
+and each row remembers when its turn came.
+
+The user page is here rather than in the gadget for the reason everything else is: the
+gadget would have to ask the wiki once per article view, which is the cost the wiki
+objected to. One batched question per fifty accounts per hour answers it for everybody.
 
 Only accounts the stored results actually name are tracked â€” a few thousand, not the
 wiki's whole block log, because the top contributors of popular articles are the same
@@ -52,6 +57,16 @@ def sync_wiki(
     # Raises on failure, before anything is written.
     blocks = mediawiki.fetch_standing(wiki, user_ids)
 
+    usernames = sorted({block.username for block in blocks.values()})
+    try:
+        with_user_page: set[str] | None = mediawiki.existing_user_pages(wiki, usernames)
+    except WikiPeopleError as error:
+        # Losing this pass costs a link, not a name. Every account keeps whatever was
+        # last known about its user page rather than the whole run being thrown away
+        # over the least consequential of the three facts.
+        LOGGER.warning("%s: user page check failed, links unchanged (%s)", wiki, error)
+        with_user_page = None
+
     cutoff = now - timedelta(seconds=settings.standing_lock_recheck_seconds)
     due = set(
         runtime.repository.lock_check_candidates(
@@ -92,6 +107,11 @@ def sync_wiki(
                 # queue next time.
                 LOGGER.warning("%s: lock check failed for %s (%s)", wiki, block.username, error)
 
+        if with_user_page is None:
+            has_user_page = previous.has_user_page if previous else None
+        else:
+            has_user_page = block.username.replace("_", " ") in with_user_page
+
         records.append(
             StandingRecord(
                 standing=AccountStanding(
@@ -105,6 +125,7 @@ def sync_wiki(
                     lock_reason=lock_reason,
                 ),
                 lock_checked_at=lock_checked_at,
+                has_user_page=has_user_page,
             )
         )
 
@@ -126,12 +147,13 @@ def sync_wiki(
 
     added, removed = runtime.repository.replace_standing(wiki, records)
     LOGGER.info(
-        "%s: %s named accounts tracked (+%s, -%s), %s lock checks",
+        "%s: %s named accounts tracked (+%s, -%s), %s lock checks, %s with a user page",
         wiki,
         len(records),
         added,
         removed,
         locks_checked,
+        "?" if with_user_page is None else len(with_user_page),
     )
     return len(records), added, removed, locks_checked
 

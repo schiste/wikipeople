@@ -10,6 +10,8 @@ htmlcov/
 wikipeople.db
 # On-wiki page drafts. The canonical copies live on-wiki; link to them, do not vendor them.
 docs/onwiki/*
-# The opt-out page is the exception. Its format is not prose but a contract optout.py parses,
-# so the starter copy is tracked and tests/test_optout.py holds the two to each other.
+# The two configuration pages are the exception. Their format is not prose but a contract
+# optout.py and displaypolicy.py parse, so the starter copies are tracked and the tests hold
+# each page to the parser that reads it.
 !docs/onwiki/optout.fr.wiki
+!docs/onwiki/display.fr.wiki

@@ -53,6 +53,15 @@
   timeout: 900
   emails: onfailure
 
+# Same cadence as the opt-out list, and for the same reason: both are pages a
+# community edits expecting the change to show up while they are still looking.
+- name: display-policy-sync
+  image: tool-wikipeople/tool-wikipeople:latest
+  command: display
+  schedule: "*/15 * * * *"
+  timeout: 900
+  emails: onfailure
+
 - name: standing-sync
   image: tool-wikipeople/tool-wikipeople:latest
   command: standing

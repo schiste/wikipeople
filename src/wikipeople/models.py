@@ -195,6 +195,35 @@ class ContributorStanding(Base):
     globally_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     lock_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     lock_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Whether the account has a user page, so a credit line does not offer a link to a
+    # page that is not there. Nullable because "nobody has looked yet" and "there is no
+    # page" are opposite answers, and only one of them may take a link away. Refreshed
+    # for every tracked account on every run, like the block: MediaWiki answers about
+    # fifty titles per request, so this fact costs what the block pass already costs.
+    has_user_page: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+
+class WikiDisplayPolicy(Base):
+    """How much of an attribution one wiki wants shown.
+
+    One row per wiki, materialised from an on-wiki page by the `display` job and read on
+    every ready response. Stored as columns rather than as a blob so that the schema is
+    the vocabulary: a value the service does not understand cannot be persisted here and
+    then quietly mean something later.
+
+    A wiki with no row is a wiki that has said nothing, which is not the same as a wiki
+    that has asked for the defaults — but it is served the same way, because the defaults
+    are what the service does when nobody has decided. The difference matters only to the
+    sync job, which must never write this row from a page it failed to read.
+    """
+
+    __tablename__ = "wiki_display_policy"
+
+    wiki: Mapped[str] = mapped_column(String(64), primary_key=True)
+    show_contributor_names: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    sanctioned_accounts: Mapped[str] = mapped_column(String(32), nullable=False)
+    anonymised_accounts: Mapped[str] = mapped_column(String(32), nullable=False)
     synced_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
 
 

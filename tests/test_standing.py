@@ -34,14 +34,21 @@ class FakeMediaWiki:
         lock_reasons: dict[str, str] | None = None,
         fail_blocks: bool = False,
         fail_locks: set[str] | None = None,
+        user_pages: set[str] | None = None,
+        fail_user_pages: bool = False,
     ) -> None:
         self.blocks = blocks or {}
         self.locked = locked or set()
         self.lock_reasons = lock_reasons or {}
         self.fail_blocks = fail_blocks
         self.fail_locks = fail_locks or set()
+        # None means "every account has one", which is the pre-existing behaviour and
+        # keeps the tests below about blocks and locks rather than about links.
+        self.user_pages = user_pages
+        self.fail_user_pages = fail_user_pages
         self.lock_lookups: list[str] = []
         self.reason_lookups: list[str] = []
+        self.user_page_lookups: list[str] = []
 
     def fetch_standing(self, _wiki: str, user_ids: list[int]) -> dict[int, AccountStanding]:
         if self.fail_blocks:
@@ -52,6 +59,12 @@ class FakeMediaWiki:
             )
             for user_id in user_ids
         }
+
+    def existing_user_pages(self, _wiki: str, usernames: list[str]) -> set[str]:
+        if self.fail_user_pages:
+            raise RetryableUpstreamError("Action API indisponible")
+        self.user_page_lookups.extend(usernames)
+        return set(usernames) if self.user_pages is None else set(usernames) & self.user_pages
 
     def global_user_info(self, _wiki: str, username: str) -> GlobalUserInfo:
         self.lock_lookups.append(username)
@@ -443,8 +456,8 @@ def test_an_opted_out_page_costs_no_standing_lookup(tmp_path: Path) -> None:
         "frwiki", [OptOutEntry(page_id=100, title="Exemple", source="page")]
     )
     calls: list[tuple] = []
-    original = runtime.repository.standing_for
-    runtime.repository.standing_for = lambda *a: calls.append(a) or original(*a)  # type: ignore[method-assign]
+    original = runtime.repository.contributor_facts
+    runtime.repository.contributor_facts = lambda *a: calls.append(a) or original(*a)  # type: ignore[method-assign]
 
     with TestClient(create_app(runtime)) as client:
         payload = client.get("/v2/frwiki/pages/100?revision_id=200").json()
@@ -639,3 +652,58 @@ def test_stats_report_what_is_tracked_not_what_is_hidden(tmp_path: Path) -> None
     with TestClient(create_app(runtime)) as client:
         stats = client.get("/v1/stats").json()
     assert stats["standing"] == {"frwiki": {"tracked": 3, "blocked": 1, "locked": 1}}
+
+
+def test_a_missing_user_page_is_recorded_so_the_credit_can_stop_promising_one(
+    tmp_path: Path,
+) -> None:
+    """The answer belongs on the server: the gadget asking would be a request per view.
+
+    That extra local API call on every article is exactly the cost the wiki objected
+    to, and the same fifty-titles-per-request pass that reads the blocks answers this
+    for free.
+    """
+    runtime = make_runtime(tmp_path, "userpage.db")
+    save(runtime, 100, CONTRIBUTORS)
+    mediawiki = FakeMediaWiki(user_pages={"U1", "U3"})
+    sync_wiki(runtime, mediawiki, "frwiki")
+
+    assert sorted(mediawiki.user_page_lookups) == ["U1", "U2", "U3"]
+    stored = runtime.repository.standing_records("frwiki")
+    assert stored[2].has_user_page is False
+    assert stored[1].has_user_page is True
+
+    with TestClient(create_app(runtime)) as client:
+        payload = client.get("/v2/frwiki/pages/100?revision_id=200").json()
+    assert [(c["username"], c["display"]) for c in payload["contributors"]] == [
+        ("Alice", "link"),
+        ("Banni", "unlink"),
+        ("Claire", "link"),
+    ]
+
+
+def test_a_failed_user_page_pass_leaves_the_links_exactly_as_they_were(tmp_path: Path) -> None:
+    """Not knowing is not knowing there is nothing.
+
+    Reading a failed request as "no user page" would unlink every name on the wiki the
+    first time the Action API had a bad minute, and the block pass would still have
+    succeeded, so the run must not be lost either.
+    """
+    runtime = make_runtime(tmp_path, "userpage-fail.db")
+    save(runtime, 100, CONTRIBUTORS)
+    sync_wiki(runtime, FakeMediaWiki(user_pages={"U1"}), "frwiki")
+
+    sync_wiki(runtime, FakeMediaWiki(user_pages={"U1"}, fail_user_pages=True), "frwiki")
+
+    stored = runtime.repository.standing_records("frwiki")
+    assert stored[1].has_user_page is True
+    assert stored[2].has_user_page is False
+
+
+def test_an_account_nobody_has_looked_at_keeps_its_link(tmp_path: Path) -> None:
+    """The first response of a wiki added this morning must not be a wall of plain text."""
+    runtime = make_runtime(tmp_path, "userpage-unknown.db")
+    save(runtime, 100, CONTRIBUTORS)
+    with TestClient(create_app(runtime)) as client:
+        payload = client.get("/v2/frwiki/pages/100?revision_id=200").json()
+    assert {c["display"] for c in payload["contributors"]} == {"link"}

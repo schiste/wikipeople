@@ -104,6 +104,26 @@ Its two environment controls are:
 
 See [ADR-0008](decisions/0008-article-opt-out.md) for what the list does and does not do.
 
+The display-policy release adds the `wiki_display_policy` table, which `create_all()` creates on
+first start, and one control:
+
+- `DISPLAY_POLICY_PAGE` (default `Project:WikiPeople/display`) — the on-wiki page each community
+  states its display policy on: whether contributors are named at all, and how a sanctioned or a
+  renamed account appears. Resolved per wiki exactly like `OPTOUT_PAGE`, with the same warning
+  about canonical prefixes, and with the same prohibition on a `.json`, `.js` or `.css`
+  extension — MediaWiki restricts those to interface administrators, and who gets named is not an
+  interface administrator's decision. A wiki with no page is served the defaults.
+
+It also adds `has_user_page` to `contributor_standing`, so a name is not drawn as a link to a user
+page that does not exist. **On a database that predates it, `create_all()` will not add the
+column**: run `ALTER TABLE contributor_standing ADD COLUMN has_user_page BOOLEAN NULL` before
+deploying, or every read of the table fails. Nullable on purpose — "nobody has looked yet" and
+"there is no page" are opposite answers, and only the second may take a link away, so the column
+starts null everywhere and the next `standing-sync` fills it.
+
+See [ADR-0011](decisions/0011-on-wiki-display-policy.md) for the vocabulary and why an unlinked
+name says nothing about why it is unlinked.
+
 The sanctioned-contributor release adds the `contributor_standing` table, which
 `create_all()` creates on first start. Its controls are:
 
@@ -335,7 +355,8 @@ Then inspect webservice logs and check that both worker replicas are running.
 | `weak-metric-recompute` | Daily | Re-queues `RECOMPUTE_BATCH_SIZE` edit-count answers at P5 in case WikiWho has indexed them since |
 | `cache-cleanup` | Weekly | Removes old failed work, superseded result revisions, and expired demand and usage rows |
 | `optout-sync` | Every 15 minutes | Per active wiki, materialises the on-wiki opt-out list into `page_optout` |
-| `standing-sync` | Hourly | Per active wiki, refreshes block and lock status for named accounts into `contributor_standing` |
+| `display-policy-sync` | Every 15 minutes | Per active wiki, materialises the on-wiki display policy into `wiki_display_policy` |
+| `standing-sync` | Hourly | Per active wiki, refreshes block, lock and user-page status for named accounts into `contributor_standing` |
 
 Live gadget misses and expired results enqueue P100 work. Prewarm and backfill skip any page with
 a result younger than `PAGE_FRESHNESS_SECONDS`. Do not increase worker replicas until WikiWho
@@ -390,6 +411,23 @@ This is a local decision and needs no deployment. Each user sets `"enabled": fal
 `User:<name>/wikipeople-config.json`, or simply removes the import from their `common.js`. Removing
 the wiki from `SUPPORTED_WIKIS` is the operator-side equivalent and is only needed when the wiki
 must stop being served entirely.
+
+### A wiki wants the count without the names, or wants a name unlinked rather than withheld
+
+This is a community decision and needs no deployment either. Edit
+`Wikipédia:WikiPeople/display` (or the same page in the local project namespace) and set
+`contributor-names`, `sanctioned-accounts` or `anonymised-accounts` on a bulleted line. Where the
+page does not exist yet, `docs/onwiki/display.fr.wiki` is a starter copy to paste: it states every
+option at its default and documents what each accepts. `display-policy-sync` picks it up within
+fifteen minutes.
+
+A value the service does not recognise is not applied and not half-applied — the option keeps its
+default — and the sync logs every key and value it ignored, which is the only signal that a typo
+was saved. To see what a page will do before it takes effect:
+
+```bash
+python -m wikipeople.displaypolicy --wiki frwiki --dry-run
+```
 
 ### An article should stop naming its contributors
 

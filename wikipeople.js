@@ -137,6 +137,12 @@
 			'wikipeople-pending': 'Analysing contributions…',
 			'wikipeople-many-people': 'many people',
 			'wikipeople-user-title': 'View the user page of $1',
+			// Stands in for a name that is no longer one. A global rename leaves
+			// "Renamed user 4501e2a3c" behind, and crediting an article to a number is
+			// worse than saying plainly that the account was anonymised. It is a
+			// statement about the account, not about the person: a rename is not
+			// necessarily a departure, and this must not claim one.
+			'wikipeople-anonymised-account': 'an anonymised account',
 			'wikipeople-share': '$1 of the currently visible tokens',
 			'wikipeople-share-edits': '$1 of the edits to this page',
 			'wikipeople-history-title': 'View the full page history',
@@ -159,6 +165,7 @@
 			'wikipeople-pending': 'Analyse des contributions…',
 			'wikipeople-many-people': 'de nombreuses personnes',
 			'wikipeople-user-title': 'Voir la page utilisateur de $1',
+			'wikipeople-anonymised-account': 'un compte anonymisé',
 			'wikipeople-share': '$1 des tokens actuellement visibles',
 			'wikipeople-share-edits': '$1 des modifications de la page',
 			'wikipeople-history-title': 'Voir l’historique complet de l’article',
@@ -984,7 +991,10 @@
 			topEditors: data.contributors.slice( 0, 3 ).map( function ( editor ) {
 				return {
 					share: Number( editor.share ),
-					username: editor.username
+					username: editor.username,
+					// How the API says this name may be shown. Absent means "as a link",
+					// which is what every answer said before the field existed.
+					display: editor.display || 'link'
 				};
 			} )
 		};
@@ -1121,24 +1131,58 @@
 		} );
 	}
 
+	/**
+	 * One contributor, as a link or as plain text, according to what the API allowed.
+	 *
+	 * "link" is the ordinary case. "unlink" is the same name with no link, and the
+	 * reason is deliberately not sent: it covers an account with no user page, and it
+	 * covers whatever else a wiki has decided to unlink, so nothing here may explain it
+	 * — an explanation would turn one opaque value back into a disclosure. "label"
+	 * replaces the name, for an account whose name is a placeholder left by a rename.
+	 *
+	 * Only the share is said about an unlinked name, because the share is true whatever
+	 * the reason was.
+	 */
 	function createEditorLink( editor, byEditCount ) {
-		var link = document.createElement( 'a' );
+		var isLabel = editor.display === 'label';
+		var isLinked = editor.display === 'link';
+		var node = document.createElement( isLinked ? 'a' : 'span' );
 		var name = editor.username.replace( /_/g, ' ' );
-		var title = new mw.Title( editor.username, 2 );
+		var tooltip = [];
 
-		link.href = title.getUrl();
-		link.textContent = name;
-		link.title = mw.message( 'wikipeople-user-title', name ).text();
+		if ( isLabel ) {
+			node.textContent = mw.message( 'wikipeople-anonymised-account' ).text();
+			node.className = 'wikipeople-anonymised';
+		} else {
+			node.textContent = name;
+			if ( !isLinked ) {
+				// A name is a name whether or not it links, so it keeps the weight the
+				// linked ones have. Without this it would read as the odd one out in a
+				// sentence, which is a statement about the person the API declined to
+				// make.
+				node.className = 'wikipeople-unlinked';
+			}
+		}
+
+		if ( isLinked ) {
+			node.href = new mw.Title( editor.username, 2 ).getUrl();
+			tooltip.push( mw.message( 'wikipeople-user-title', name ).text() );
+		}
+
 		if ( Number.isFinite( editor.share ) && percentageFormatter ) {
 			// The share is a share of whatever was ranked: of the visible tokens, or of
 			// the page's edits. Naming the wrong one turns a true percentage into a
 			// false statement.
-			link.title += ' — ' + mw.message(
+			tooltip.push( mw.message(
 				byEditCount ? 'wikipeople-share-edits' : 'wikipeople-share',
 				percentageFormatter.format( editor.share )
-			).text();
+			).text() );
 		}
-		return link;
+
+		if ( tooltip.length ) {
+			node.title = tooltip.join( ' — ' );
+		}
+		return node;
 	}
 
 	function createHistoryCountLink( count, limited, isRemainder ) {

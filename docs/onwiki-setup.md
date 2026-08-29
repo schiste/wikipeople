@@ -188,6 +188,7 @@ Available keys, with the built-in English text:
 | `wikipeople-pending` | `Analysing contributions…` |
 | `wikipeople-many-people` | `many people` |
 | `wikipeople-user-title` | `View the user page of $1` |
+| `wikipeople-anonymised-account` | `an anonymised account` |
 | `wikipeople-share` | `$1 of the currently visible tokens` |
 | `wikipeople-share-edits` | `$1 of the edits to this page` |
 | `wikipeople-history-title` | `View the full page history` |
@@ -200,6 +201,12 @@ Available keys, with the built-in English text:
 | `wikipeople-history-sandbox-label` | `the sandbox` |
 | `wikipeople-history-edit` | `You can also $1.` |
 | `wikipeople-history-edit-label` | `edit this article directly` |
+
+`wikipeople-anonymised-account` stands in for a name that is no longer one. A global rename
+leaves `Renamed user 4501e2a3c` behind, and the account really did write the text, so it cannot be
+dropped — crediting the article to a number is the alternative this replaces. Keep any override a
+statement about the *account*: a rename is not necessarily a departure, and wording that says the
+person left would be a claim the data does not support.
 
 The three `-edits` keys are used only when the text itself could not be analysed and the names come
 from the page history instead — who edited most, rather than who wrote what you are reading. They
@@ -331,6 +338,28 @@ not outside the main namespace.
 
 For a deeper look, open the browser console. Initialisation failures are logged through
 `mw.log.warn` with a `WikiPeople:` prefix.
+
+## What the wiki decides, and what you decide
+
+The page above is yours: it governs what *your* browser draws. Two things it deliberately cannot
+reach are decided by the wiki instead, on ordinary wikitext pages that any registered editor can
+edit, and are enforced by the API for every reader at once:
+
+| Page | What it decides |
+| --- | --- |
+| `Project:WikiPeople/opt-out` | Which articles are counted but not named. See [ADR-0008](decisions/0008-article-opt-out.md). |
+| `Project:WikiPeople/display` | Whether contributors are named at all, and how a sanctioned or a renamed account appears. See [ADR-0011](decisions/0011-on-wiki-display-policy.md). |
+
+They are not options in your JSON, and that is the point. The API withholds a sanctioned name
+before it ever reaches your browser, so no personal setting could show one; and "name the people
+who wrote this" is a statement a project makes about its own contributors, which is not a reader's
+to override. Starter copies of both pages, documenting their own format, are in
+[`docs/onwiki/`](onwiki).
+
+One thing neither page controls: a contributor with no user page has their name shown without a
+link. That is a bug fix rather than a policy — a blue link that leads to an empty create form is a
+promise the box should not make — so it applies everywhere and cannot be switched off. It also
+means an unlinked name tells you nothing about *why* it is unlinked, which is deliberate.
 
 ## Later: becoming a site-wide gadget
 

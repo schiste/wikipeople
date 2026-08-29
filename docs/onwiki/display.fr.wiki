@@ -1,0 +1,113 @@
+<!--
+Page de politique d'affichage WikiPeople — modèle de départ, version française.
+
+Destination : la page nommée par DISPLAY_POLICY_PAGE, et elle seule. Le service ne lit
+rien d'autre. Tant que WikiPeople est un script personnel, c'est une sous-page de la
+personne qui le maintient — Utilisateur:Schiste/wikipeople-affichage sur frwiki. Quand une
+communauté adopte le gadget, elle passe à Wikipédia:WikiPeople/display.
+
+Ne jamais donner à cette page une extension .json, .js ou .css : MediaWiki la verrouillerait
+aux seuls admins d'interface, et le choix de qui est nommé n'est pas une décision d'admin
+d'interface.
+
+Source : https://github.com/schiste/wikifame (docs/onwiki/display.fr.wiki)
+Le format décrit ici est celui que lit wikipeople/displaypolicy.py ; tests/test_displaypolicy.py
+vérifie que cette page et l'analyseur restent d'accord. Modifier les règles ci-dessous sans
+modifier le code ne changera rien au comportement réel.
+-->
+{{Sous-titre|Ce que WikiPeople affiche sur ce wiki}}
+
+[[Utilisateur:Schiste/wikipeople|WikiPeople]] affiche sous le titre des articles une phrase du
+type :
+
+: ''Article rédigé par [[Utilisateur:Exemple|Exemple]], [[Utilisateur:Exemple2|Exemple2]] et 46 autres personnes.''
+
+Cette page décide de ce qui apparaît dans cette phrase. Elle ne décide pas de ''qui'' a écrit
+l'article : ce calcul ne change pas, et rien n'est recalculé quand cette page est modifiée.
+
+Le changement prend effet en '''une vingtaine de minutes''' : jusqu'à quinze pour que le service
+relise cette page, jusqu'à cinq pour que le cache du lectorat expire.
+
+Pour retirer les noms sur '''un article en particulier''', c'est l'autre page qu'il faut :
+[[Utilisateur:Schiste/wikipeople-optout|la liste des articles comptés mais sans noms]].
+
+== Réglages ==
+
+* contributor-names : show
+* sanctioned-accounts : hide
+* anonymised-accounts : label
+
+Ce sont les valeurs par défaut. Une ligne retirée revient à sa valeur par défaut ; il n'est donc
+pas nécessaire de toutes les écrire, mais les garder montre à la personne suivante ce qui existe.
+
+== Ce que chaque réglage accepte ==
+
+=== <code>contributor-names</code> ===
+
+* <code>show</code> ''(défaut)'' — la phrase nomme jusqu'à trois personnes, puis compte les autres.
+* <code>hide</code> — la phrase ne nomme personne et ne donne que le nombre total :
+  ''Article rédigé par 47 personnes.'' Le décompte reste, parce qu'il n'est pas un nom et que
+  le retirer masquerait le fait que l'article a une histoire.
+
+=== <code>sanctioned-accounts</code> ===
+
+Concerne les comptes durablement exclus : un blocage indéfini ou de très longue durée, ou un
+verrouillage global prononcé comme sanction. Un blocage d'une semaine, un blocage partiel, un
+blocage demandé par la personne elle-même et un verrouillage de courtoisie ne sont pas concernés.
+
+* <code>hide</code> ''(défaut)'' — le nom n'apparaît pas ; sa part est comptée dans « et 46 autres
+  personnes ». Une ligne de crédit est un mauvais endroit pour apprendre qu'une personne a été
+  exclue.
+* <code>unlink</code> — le nom apparaît, sans lien.
+* <code>link</code> — le nom apparaît comme les autres.
+
+=== <code>anonymised-accounts</code> ===
+
+Concerne les comptes renommés en <code>Renamed user 4501e2a3c</code> ou
+<code>Vanished user 12345</code>, ce que produit un renommage global non choisi — en pratique, un
+droit à disparaître.
+
+* <code>label</code> ''(défaut)'' — la mention ''un compte anonymisé'' remplace le nom. C'est la
+  seule option qui n'attribue ni l'article à un numéro, ni le travail de cette personne à d'autres.
+* <code>hide</code> — le compte n'apparaît pas ; sa part passe dans « et 46 autres personnes ».
+  À savoir : cela attribue implicitement son travail au reste de l'historique.
+* <code>unlink</code> — le nom de remplacement apparaît, sans lien.
+* <code>link</code> — le nom de remplacement apparaît avec un lien, généralement rouge.
+
+== Règles de lecture ==
+
+Le service lit cette page mécaniquement. Tout ce qui n'est pas un réglage — titres de section,
+explications, notes, cette section comprise — est ignoré.
+
+=== Ce qui compte comme un réglage ===
+
+* La ligne commence par une puce (<code>*</code>), suivie du nom du réglage, d'un deux-points ou
+  d'un signe égal, puis de la valeur. <code><nowiki>* sanctioned-accounts : hide</nowiki></code>.
+* Les majuscules, les espaces autour du deux-points, les tirets bas à la place des tirets, le
+  gras et <code><nowiki><code></nowiki></code> sont tolérés.
+* '''Seule la première ligne compte''' pour un réglage donné. Une seconde ligne portant le même
+  nom est sans effet — comme un doublon dans la liste de retrait.
+* Une valeur inconnue '''n'est pas appliquée à moitié'''. Le réglage garde sa valeur par défaut,
+  et le service journalise ce qu'il a ignoré. <code>hde</code> ne fait rien du tout.
+* Un nom de réglage inconnu est ignoré et journalisé. Un réglage ajouté à une version ultérieure
+  du service peut donc être écrit ici sans risque.
+
+=== Ce qui n'en est pas un ===
+
+* Une ligne en prose, dans un tableau, dans une liste numérotée (<code>#</code>) ou indentée
+  (<code>:</code>).
+* '''Tout ce qui est entre <nowiki><!-- --></nowiki>''', y compris un réglage mis en commentaire.
+  C'est la façon propre de suspendre un réglage sans le perdre.
+
+== Ce que cette page ne fait pas ==
+
+* '''Elle ne masque pas de liens rouges.''' Un compte sans page utilisateur voit toujours son nom
+  affiché sans lien, quels que soient les réglages : c'est une correction de bogue, pas une
+  décision de wiki. Un nom sans lien ne dit donc rien sur la raison — ni sanction, ni renommage,
+  ni absence de page — et c'est voulu.
+* '''Elle ne supprime rien.''' L'attribution reste calculée et conservée par le service ; c'est
+  son affichage qui change.
+* '''Elle ne concerne que WikiPeople.''' L'historique de l'article et les outils d'analyse de
+  contributions ne sont pas affectés.
+* '''Elle ne remplace pas une demande de masquage.''' Une révision dont le contenu doit être
+  masqué relève des [[Wikipédia:Oversight|oversighters]], pas de cette page.

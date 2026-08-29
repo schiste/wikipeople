@@ -6,8 +6,18 @@
 	line-height: 1.5;
 }
 
-.wikipeople--article a {
+.wikipeople--article a,
+/* A contributor whose name carries no link — because there is no user page behind it,
+   or because the wiki asked for none — is still one of the names in the sentence, and
+   is set like the others. Anything else would single them out. */
+.wikipeople--article .wikipeople-unlinked {
 	font-weight: 600;
+}
+
+/* Generic wording standing in for a name that a rename replaced with a number. Not set
+   like a name, because it is not one. */
+.wikipeople--article .wikipeople-anonymised {
+	font-style: italic;
 }
 
 .wikipeople--history {

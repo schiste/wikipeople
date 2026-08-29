@@ -63,6 +63,17 @@ calculation remain usable across ordinary edits for `PAGE_FRESHNESS_SECONDS`, 90
   missing share appears in `other_contributors`, so a two-name answer with a large remainder is
   normal and is not an error. See
   [ADR-0009](decisions/0009-sanctioned-contributor-visibility.md).
+- `contributors` may also be **empty with `opted_out: false`**, when the wiki has asked for names
+  to be shown nowhere rather than for this article to be excepted. Render it exactly as an
+  opt-out: the count without the names.
+- Each contributor carries `display`, saying how the name may be shown. `link` is the ordinary
+  case and is what an absent field means. `unlink` is the name with no link. `label` means the
+  name is a placeholder left by a rename and the client should print its own generic wording
+  instead — it is still one of the article's authors and must keep its place in the sentence.
+  **Do not explain an unlinked name to the reader.** `unlink` covers an account with no user
+  page, and it covers whatever else a wiki has chosen to unlink; the causes share one value on
+  purpose, and telling them apart is the disclosure the paragraph above refuses to make. See
+  [ADR-0011](decisions/0011-on-wiki-display-policy.md).
 - `source_revision_id` is the exact revision analyzed by WikiWho.
 - `requested_revision_id` is the revision displayed when the request was made.
 - `is_fresh` is true until `computed_at + PAGE_FRESHNESS_SECONDS`.
@@ -129,7 +140,8 @@ revision IDs are stable.
       "user_id": 10,
       "username": "Alice",
       "token_count": 310,
-      "share": 0.314
+      "share": 0.314,
+      "display": "link"
     }
   ],
   "distinct_contributors": 47,
@@ -145,8 +157,9 @@ revision IDs are stable.
 `share` is a fraction between zero and one. `other_contributors` is always
 `max(0, distinct_contributors - contributors.length)`.
 
-`opted_out` behaves exactly as it does on v2. The opt-out is applied when the response is built,
-so it cannot be sidestepped by asking v1 for an exact revision.
+`opted_out`, `display`, and the wiki's display policy behave exactly as they do on v2. All of
+them are applied when the response is built, so none can be sidestepped by asking v1 for an exact
+revision.
 
 Ready responses use:
 

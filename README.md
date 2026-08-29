@@ -68,6 +68,9 @@ policy, update behavior, privacy, and the path toward millions of articles.
 - [ADR-0010](docs/decisions/0010-demand-and-usage-counters.md): what is recorded about being
   used, why it is two counter tables and not a log, and how the backfill came to be ordered by
   readership rather than by article size.
+- [ADR-0011](docs/decisions/0011-on-wiki-display-policy.md): why how much of an attribution is
+  shown is a wiki's decision rather than the operator's, how a wiki states it, and why an
+  unlinked name deliberately says nothing about why it is unlinked.
 - [Contributing](CONTRIBUTING.md): local workflow and change checklist.
 - [Agent guide](AGENTS.md): repository invariants and commands for coding agents.
 
