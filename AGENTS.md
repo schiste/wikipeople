@@ -31,8 +31,9 @@ serves every Wikipedia WikiWho covers.
   `sites.py`; whether it is served is configuration. Capability always wins.
 - Universal serving never implies universal crawling. `BACKFILL_WIKIS` stays an explicit opt-in.
 - An opt-out is enforced where the answer is built, never in the gadget, and on every endpoint. A
-  page on the on-wiki list is served with no contributors and its full count. Failing to read a
-  list leaves the stored one alone; an empty list is an instruction, an error is not.
+  page on the on-wiki list is served with no contributors and its full count. Failing to read the
+  configuration page — unreachable, or no longer valid JSON — leaves the stored answer alone; an
+  empty list is an instruction, an error is not.
 
 ## Repository map
 
@@ -43,7 +44,7 @@ serves every Wikipedia WikiWho covers.
 - `src/wikipeople/sites.py`: database name → WikiWho language → Wikipedia host, and enablement.
 - `src/wikipeople/policy.py`, `attribution.py`: product rules and pure aggregation.
 - `src/wikipeople/repository.py`, `models.py`: durable cache, queue, leases, retention.
-- `prewarm.py`, `backfill.py`, `cleanup.py`, `optout.py`: scheduled jobs.
+- `prewarm.py`, `backfill.py`, `cleanup.py`, `onwiki.py`: scheduled jobs.
 - `docs/api.md`: consumer contract.
 - `docs/operations.md`: deployment and incident runbook.
 - `docs/onwiki-setup.md`, `config/`: on-wiki configuration reference and per-wiki defaults.

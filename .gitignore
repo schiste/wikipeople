@@ -9,9 +9,6 @@ __pycache__/
 htmlcov/
 wikipeople.db
 # On-wiki page drafts. The canonical copies live on-wiki; link to them, do not vendor them.
+# The configuration page is not one of these: its format is a contract rather than prose, so its
+# starter copies are tracked as real files under config/, where the tests can hold them to it.
 docs/onwiki/*
-# The two configuration pages are the exception. Their format is not prose but a contract
-# optout.py and displaypolicy.py parse, so the starter copies are tracked and the tests hold
-# each page to the parser that reads it.
-!docs/onwiki/optout.fr.wiki
-!docs/onwiki/display.fr.wiki

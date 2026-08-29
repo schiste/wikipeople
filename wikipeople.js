@@ -9,14 +9,21 @@
  * for a day, so a reader whose script manager carries this file onto Commons or
  * Wikidata asks once instead of on every page.
  *
- * Wording and help links come from the reader's own User:<name>/wikipeople-config.json
- * on the local wiki, alongside the script itself. While WikiPeople is a personal script
- * the reader and the installer are the same person, so no interface-admin rights are
- * needed and each wiki gets its own copy. The page is optional: without it the
- * built-in defaults apply. Defaults per wiki are published in the repository.
+ * Everything configurable lives on one page per wiki, CONFIG_OWNER's own
+ * wikipeople-config.json subpage, alongside the script itself. The maintainer edits it;
+ * every reader is served by it. That is one page and not three because while WikiPeople
+ * is a personal script there is one decision-maker: the person who installs it, the
+ * person who chooses its wording and the person who answers an opt-out request are the
+ * same person. No interface-admin right is involved, and each wiki gets its own copy.
+ * The page is optional: without it the built-in defaults apply. Defaults per wiki are
+ * published in the repository.
  *
- * When this becomes a site-wide gadget the page moves to MediaWiki:Wikipeople-config.json
- * and only CONFIG_PAGE_SUFFIX and configPage() change.
+ * The API reads the same page on a schedule, for the options it has to apply itself —
+ * the opt-out list and the display policy, which a rule enforced here would leave one
+ * direct request away. This file ignores those keys, and the API ignores these.
+ *
+ * When this becomes a site-wide gadget the page moves into the project namespace and
+ * only CONFIG_OWNER, CONFIG_PAGE_SUFFIX and configPage() change.
  *
  * Every option, its default, and the values it accepts are DEFAULT_CONFIG and ALLOWED_VALUES
  * below. The published pages in config/ and the field table in docs/onwiki-setup.md say the
@@ -41,6 +48,10 @@
 	var HISTORY_INTRO_ID = 'wikipeople-history-intro';
 	var CACHE_VERSION = 'v2';
 	var TOOLFORGE_API_BASE = 'https://wikipeople.toolforge.org';
+	// The account whose subpage every reader is configured from. A global account, so
+	// the same name resolves on every wiki; the namespace is added by number below, so
+	// no localised prefix is written down anywhere.
+	var CONFIG_OWNER = 'Schiste';
 	var CONFIG_PAGE_SUFFIX = '/wikipeople-config.json';
 	var REQUEST_TIMEOUT_MS = 8000;
 	// Deliberately short, and deliberately the same number the API puts in its max-age.
@@ -241,15 +252,12 @@
 	/* -------------------------------------------------------------- configuration */
 
 	/**
-	 * Title of the configuration page for this reader on this wiki, or null when there
-	 * is nobody to attribute it to. Namespace 2 resolves to the wiki's own localised
-	 * user-namespace name, so this works unchanged on every language edition.
+	 * Title of the configuration page on this wiki. Namespace 2 resolves to the wiki's
+	 * own localised user-namespace name, so this works unchanged on every language
+	 * edition and no reader has to be logged in for it to exist.
 	 */
 	function configPage() {
-		if ( !config.wgUserName ) {
-			return null;
-		}
-		return new mw.Title( config.wgUserName + CONFIG_PAGE_SUFFIX, 2 ).getPrefixedDb();
+		return new mw.Title( CONFIG_OWNER + CONFIG_PAGE_SUFFIX, 2 ).getPrefixedDb();
 	}
 
 	/**
@@ -264,12 +272,9 @@
 		var response;
 		var parsed;
 
-		if ( !page ) {
-			return normalizeConfig( {} );
-		}
-
-		// The page is per user as well as per wiki, so both belong in the key: a shared
-		// browser must not serve one account's configuration to the next.
+		// One page per wiki, so the wiki is what separates two entries. It is not per
+		// reader any more, and the key says so: a shared browser holding one entry for
+		// this wiki is holding the right one for everybody who uses it.
 		cacheKey = 'wikipeople:config:' + CACHE_VERSION + ':' + config.wgDBname + ':' + page;
 		cached = readCache( cacheKey, CONFIG_CACHE_MAX_AGE_MS );
 

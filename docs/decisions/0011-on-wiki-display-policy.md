@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-08-29
+- Revised: 2026-08-29, before deployment — one JSON configuration page instead of three wikitext
+  pages. See [Where the policy is written](#where-the-policy-is-written).
 - Algorithm version: unchanged (the policy changes what is presented, not what is computed)
 
 ## Context
@@ -38,28 +40,19 @@ whose contributors are being named has no say in any of it.
 
 **A wiki states its display policy on an ordinary wiki page. The API applies it.**
 
-- The page is `Project:WikiPeople/display`, resolved to each wiki's own project namespace
-  the same way the opt-out list is. It is **wikitext, never a `.json` subpage**: MediaWiki
-  locks `.json` pages to interface administrators, and "who gets named here" must not be a
-  decision only an interface administrator can make.
-- A setting is a bulleted `key: value` line. Everything else on the page — headings, the
-  reasoning behind a setting, a link to the discussion that produced it — is ignored, and
-  a duplicate key has no effect, both exactly as on the opt-out page. Two pages a
-  community maintains should not have two rules. A starter copy is tracked at
-  `docs/onwiki/display.fr.wiki` and `tests/test_displaypolicy.py` runs the parser over it.
 - Three keys, with these defaults:
 
   | Key | Accepts | Default |
   | --- | --- | --- |
-  | `contributor-names` | `show`, `hide` | `show` |
-  | `sanctioned-accounts` | `hide`, `unlink`, `link` | `hide` |
-  | `anonymised-accounts` | `label`, `hide`, `unlink`, `link` | `label` |
+  | `contributorNames` | `show`, `hide` | `show` |
+  | `sanctionedAccounts` | `hide`, `unlink`, `link` | `hide` |
+  | `anonymisedAccounts` | `label`, `hide`, `unlink`, `link` | `label` |
 
 - **A value outside its list is not obeyed and not half-obeyed: the default applies**, and
   the sync logs what it ignored. This is the server twin of the gadget's `ALLOWED_VALUES`
-  and exists for the same reason — `sanctioned-accounts: unlnik` must not become a fourth
+  and exists for the same reason — `sanctionedAccounts: "unlnik"` must not become a fourth
   behaviour nobody wrote.
-- `contributor-names: hide` is the count-only mode. It produces the same shape as an
+- `contributorNames: "hide"` is the count-only mode. It produces the same shape as an
   opt-out — empty `contributors`, `distinct_contributors` intact — but `opted_out` stays
   **false**, because that flag is about an article and nothing about the article was
   decided. The gadget needs no change to render it; it is the branch a page WikiWho could
@@ -79,6 +72,33 @@ main authors is banned. A `display` value that distinguished its causes would re
 exactly that. So the gadget explains nothing about an unlinked name, and on the default
 policy `unlink` only ever means the user page does not exist.
 
+### Where the policy is written
+
+**One page per wiki holds every setting WikiPeople has: `User:Schiste/wikipeople-config.json`.**
+
+The first draft of this decision put the policy on `Project:WikiPeople/display`, in wikitext,
+arguing that `.json` is locked to interface administrators and "who gets named here" must not need
+one. That argument was wrong about the page it was defending. A user's own `.json` subpage needs
+`editmyuserjson`, which every registered account has; and WikiPeople is a personal script with one
+maintainer, so the community that would need edit access to a project page does not yet exist. The
+production deployment had already moved `OPTOUT_PAGE` to a user subpage for that reason
+([the rename runbook](../rename-runbook.md) records it), which made the `Project:` default fiction.
+
+So the opt-out list and the three keys above join the gadget's own options on the single page the
+gadget already fetched, keeping the gadget's camelCase spelling. One page, two readers: the browser
+takes the six drawing options, the sync job takes the four rules. Neither knows the other's keys
+exist; both ignore what they do not recognise, so either half can grow without touching the other.
+
+MediaWiki validates a `.json` page on save and refuses to store invalid JSON, which the wikitext
+parser could not do — a malformed page cannot reach the wiki in the first place. If one arrives
+anyway, an unreadable page raises `InvalidConfigPageError` and behaves exactly like a failed fetch:
+the stored configuration stands. A missing comma read as "nobody is opted out any more" would
+un-hide every opted-out article on the wiki at once, so the parser refuses to guess.
+
+`CONFIG_PAGE` names the page, so moving it to the project namespace when a community adopts the
+gadget is one environment variable and one constant in `wikipeople.js` — which the tests hold to
+the same value.
+
 **Whether a user page exists is a fact the server carries, not a question the gadget asks.**
 
 `contributor_standing` gains `has_user_page`, refreshed by `standing-sync` for every
@@ -90,9 +110,10 @@ away: an account nobody has looked at keeps its link.
 
 **The policy is materialised by a scheduled job, not read on request.**
 
-The serve path may not call MediaWiki. `display-policy-sync` runs every fifteen minutes
-over the active wikis and writes one row per wiki into `wiki_display_policy`; the API does
-one primary-key lookup per ready response, beside the one `is_opted_out` already does.
+The serve path may not call MediaWiki. `config-sync` runs every fifteen minutes over the
+active wikis and writes one row per wiki into `wiki_display_policy`, alongside the opt-out
+rows from the same page; the API does one primary-key lookup per ready response, beside the
+one `is_opted_out` already does.
 
 A failure to read the page is not a policy. The sync writes only after MediaWiki has
 actually answered; anything else raises, that wiki is skipped, and its stored policy is
@@ -106,9 +127,9 @@ Editing the page takes effect within fifteen minutes plus the five-minute reader
 The defaults are what almost every wiki will run, so they are the policy rather than a
 placeholder for one, and they are argued here rather than deferred:
 
-- `sanctioned-accounts: hide` keeps ADR-0009 unchanged. A wiki that would rather show the
+- `sanctionedAccounts: "hide"` keeps ADR-0009 unchanged. A wiki that would rather show the
   name without the link now has somewhere to say so.
-- `anonymised-accounts: label` is the only option that is neither a misattribution nor a
+- `anonymisedAccounts: "label"` is the only option that is neither a misattribution nor a
   credit to a number. `hide` moves the share into "and 46 others" and is offered because a
   wiki may prefer it, not because it is honest.
 
@@ -127,9 +148,9 @@ broken; a client that ignores it behaves exactly as before. The gadget does not 
 and the two ship together, because a client that ignores it would still print
 `Renamed user 4501e2a3c`.
 
-The page is editable by any registered user, with the same asymmetry as the opt-out list:
-every setting except `link` only ever shows less, and the page history makes a change to
-either direction visible.
+The page is editable by whoever owns it — today the maintainer, tomorrow a community — with
+the same asymmetry as the opt-out list it now contains: every setting except `link` only ever
+shows less, and the page history makes a change in either direction visible.
 
 `wiki_display_policy` is a new table, which `create_all()` creates on first start.
 `has_user_page` is a new **column** on an existing table, which `create_all()` will not

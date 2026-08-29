@@ -1,3 +1,6 @@
+import re
+from pathlib import Path
+
 from pytest import MonkeyPatch
 
 from wikipeople.config import Settings
@@ -43,17 +46,36 @@ def test_page_freshness_defaults_are_explicit(monkeypatch: MonkeyPatch) -> None:
     assert settings.page_stale_while_revalidate_seconds == 7 * 24 * 60 * 60
 
 
-def test_the_optout_page_title_is_one_title_for_every_wiki(monkeypatch: MonkeyPatch) -> None:
-    """ "Project:" is a canonical prefix MediaWiki resolves per wiki.
+def test_the_configuration_page_title_is_one_title_for_every_wiki(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """ "User:" is a canonical prefix MediaWiki resolves per wiki.
 
-    It reaches "Wikipédia:WikiPeople/opt-out" on frwiki and "Wikipedia:WikiPeople/opt-out"
-    on enwiki without this service holding a table of namespace names it would have to
-    keep in step with seventy communities.
+    It reaches "Utilisateur:Schiste/…" on frwiki and "Benutzer:Schiste/…" on dewiki
+    without this service holding a table of namespace names it would have to keep in
+    step with seventy communities. It is a user subpage rather than a project page
+    because that is what a personal script is: the maintainer owns its settings, and
+    no interface-admin right is involved.
     """
-    monkeypatch.delenv("OPTOUT_PAGE", raising=False)
+    monkeypatch.delenv("CONFIG_PAGE", raising=False)
     monkeypatch.delenv("OPTOUT_CATEGORY_LIMIT", raising=False)
 
     settings = Settings.from_env()
 
-    assert settings.optout_page == "Project:WikiPeople/opt-out"
+    assert settings.config_page == "User:Schiste/wikipeople-config.json"
     assert settings.optout_category_limit == 5000
+
+
+def test_the_server_and_the_gadget_fetch_the_same_page() -> None:
+    """One page or it is not one configuration.
+
+    The gadget builds the title from a namespace number and an owner; this service
+    builds it from a canonical prefix and the same owner. Two constructions of one
+    title is exactly how they would drift apart, so they are held together here.
+    """
+    gadget = (Path(__file__).resolve().parents[1] / "wikipeople.js").read_text(encoding="utf-8")
+    owner = re.search(r"CONFIG_OWNER = '([^']+)'", gadget)
+    suffix = re.search(r"CONFIG_PAGE_SUFFIX = '([^']+)'", gadget)
+    assert owner is not None and suffix is not None
+
+    assert Settings.from_env().config_page == f"User:{owner.group(1)}{suffix.group(1)}"

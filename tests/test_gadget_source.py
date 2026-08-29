@@ -63,16 +63,33 @@ def test_every_config_value_the_gadget_reads_is_actually_requested() -> None:
     assert used - requested == set()
 
 
-def test_config_page_lives_beside_the_script_in_the_readers_own_user_space() -> None:
-    """A personal script must not require interface-admin rights to configure."""
+def test_one_configuration_page_serves_every_reader_of_this_wiki() -> None:
+    """A personal script must not require interface-admin rights to configure.
+
+    It is the maintainer's subpage and not each reader's own, because the same page
+    carries the opt-out list and the display policy, and those are answers a wiki gives
+    once. A per-reader copy of them would be a reader deciding who gets named.
+    """
     body = GADGET_SOURCE.split("function configPage()", 1)[1].split("\n\t}", 1)[0]
-    assert "wgUserName" in body
+    assert "CONFIG_OWNER" in body
     # Namespace 2 by number, so the localised user-namespace name resolves per wiki.
     assert "CONFIG_PAGE_SUFFIX, 2" in body
+    assert "wgUserName" not in body
     assert "'User:'" not in GADGET_SOURCE
     # The MediaWiki-namespace page is the future gadget location, a comment only.
     code = [line for line in GADGET_SOURCE.splitlines() if not line.lstrip().startswith("*")]
     assert not [line for line in code if "MediaWiki:" in line]
+
+
+def test_the_gadget_reads_only_its_own_half_of_the_page() -> None:
+    """The server's options share the file and are none of the browser's business.
+
+    An opt-out applied here would leave the names one direct request away, so the
+    gadget must not act on `optOut` even by accident. DEFAULT_CONFIG is the whole
+    contract — a key that is not in it is not read — and this states the consequence.
+    """
+    for key in ("optOut", "contributorNames", "sanctionedAccounts", "anonymisedAccounts"):
+        assert key not in GADGET_SOURCE
 
 
 def test_custom_content_is_parsed_by_mediawiki_rather_than_built_here() -> None:

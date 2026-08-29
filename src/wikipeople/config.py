@@ -79,9 +79,8 @@ class Settings:
     page_freshness_seconds: int
     page_cache_seconds: int
     page_stale_while_revalidate_seconds: int
-    optout_page: str
+    config_page: str
     optout_category_limit: int
-    display_policy_page: str
     hide_sanctioned_contributors: bool
     max_visible_block_seconds: int
     max_visible_block_seconds_by_wiki: tuple[tuple[str, int], ...]
@@ -177,21 +176,21 @@ class Settings:
             page_stale_while_revalidate_seconds=int(
                 os.getenv("PAGE_STALE_WHILE_REVALIDATE_SECONDS", "604800")
             ),
-            # One title for every wiki. MediaWiki resolves the canonical "Project:" prefix
-            # to whatever the local project namespace is called — "Wikipédia:" on frwiki,
-            # "Wikipedia:" on enwiki, "פרויקט:" on hewiki — so a community finds the list
-            # where it would expect to and no per-wiki table has to be kept in step.
-            optout_page=os.getenv("OPTOUT_PAGE", "Project:WikiPeople/opt-out"),
-            # A ceiling on how far one line of a list page can reach. Categories are not
+            # The one page a wiki configures WikiPeople on, and the same page the gadget
+            # fetches in the browser. "User:" is a canonical namespace prefix MediaWiki
+            # resolves to the local name — "Utilisateur:" on frwiki, "Benutzer:" on
+            # dewiki — so one title reaches it on every wiki with no per-wiki table to
+            # keep in step. It is the maintainer's own subpage because that is what a
+            # personal script is: whoever installs it owns its settings, and no
+            # interface-admin right is involved. When WikiPeople becomes a site-wide
+            # gadget this moves to the project namespace, and it is one variable and one
+            # constant in the gadget that change.
+            config_page=os.getenv("CONFIG_PAGE", "User:Schiste/wikipeople-config.json"),
+            # A ceiling on how far one entry of the opt-out list can reach. Categories are not
             # walked recursively, so this only bites on a genuinely enormous flat
             # category; the sync logs the truncation rather than silently covering part
             # of it, because "half of this category is opted out" is not an opt-out.
             optout_category_limit=int(os.getenv("OPTOUT_CATEGORY_LIMIT", "5000")),
-            # The page a community states its display policy on, resolved the same way
-            # as the opt-out list. Deliberately not a `.json` subpage: MediaWiki locks
-            # those to interface administrators, and a decision about who gets named
-            # must not be one that only an interface administrator can make.
-            display_policy_page=os.getenv("DISPLAY_POLICY_PAGE", "Project:WikiPeople/display"),
             # On by default. Leaving it off would have been the conservative-looking
             # choice, but the default is what almost every wiki will run, so the default
             # is the policy; ADR-0009 argues it out rather than deferring it.

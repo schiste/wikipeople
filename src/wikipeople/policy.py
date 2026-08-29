@@ -271,10 +271,12 @@ SHOW = "show"
 #: half-obeyed: the default applies. This is the server twin of the gadget's
 #: `ALLOWED_VALUES`, and for the same reason — a page carrying a typo, or copied from a
 #: later revision of the service, must change nothing rather than something unpredictable.
+#: Keyed by the option name as it appears on the configuration page, in the camelCase
+#: the gadget's own options already use — one page, one spelling convention.
 DISPLAY_POLICY_VALUES: dict[str, tuple[str, ...]] = {
-    "contributor-names": (SHOW, DISPLAY_HIDE),
-    "sanctioned-accounts": (DISPLAY_HIDE, DISPLAY_UNLINK, DISPLAY_LINK),
-    "anonymised-accounts": (DISPLAY_LABEL, DISPLAY_HIDE, DISPLAY_UNLINK, DISPLAY_LINK),
+    "contributorNames": (SHOW, DISPLAY_HIDE),
+    "sanctionedAccounts": (DISPLAY_HIDE, DISPLAY_UNLINK, DISPLAY_LINK),
+    "anonymisedAccounts": (DISPLAY_LABEL, DISPLAY_HIDE, DISPLAY_UNLINK, DISPLAY_LINK),
 }
 
 
@@ -306,23 +308,29 @@ class DisplayPolicy:
     anonymised_accounts: str = DISPLAY_LABEL
 
 
-def normalize_display_policy(values: dict[str, str]) -> DisplayPolicy:
+def normalize_display_policy(values: dict[str, object]) -> DisplayPolicy:
     """Turn what a page says into a policy, keeping only what it says unambiguously.
 
     Absence of an instruction is not an instruction: a key the page does not mention
     keeps its default, and so does a key whose value is not one this understands. That
-    is the same rule the gadget applies to its configuration page and the same reason —
-    "sanctioned-accounts: unlnik" must not become a fourth behaviour nobody wrote.
+    is the same rule the gadget applies to the same page, and the same reason —
+    `"sanctionedAccounts": "unlnik"` must not become a fourth behaviour nobody wrote.
+
+    Takes the whole parsed page rather than a filtered subset: the file holds the
+    gadget's options too, and a value of the wrong type for a key that is not an option
+    here is not this function's business to complain about.
     """
     accepted = {
-        key: value
+        key: value.strip().lower()
         for key, value in values.items()
-        if key in DISPLAY_POLICY_VALUES and value in DISPLAY_POLICY_VALUES[key]
+        if isinstance(value, str)
+        and key in DISPLAY_POLICY_VALUES
+        and value.strip().lower() in DISPLAY_POLICY_VALUES[key]
     }
     return DisplayPolicy(
-        show_contributor_names=accepted.get("contributor-names", SHOW) == SHOW,
-        sanctioned_accounts=accepted.get("sanctioned-accounts", DisplayPolicy.sanctioned_accounts),
-        anonymised_accounts=accepted.get("anonymised-accounts", DisplayPolicy.anonymised_accounts),
+        show_contributor_names=accepted.get("contributorNames", SHOW) == SHOW,
+        sanctioned_accounts=accepted.get("sanctionedAccounts", DisplayPolicy.sanctioned_accounts),
+        anonymised_accounts=accepted.get("anonymisedAccounts", DisplayPolicy.anonymised_accounts),
     )
 
 

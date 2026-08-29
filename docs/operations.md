@@ -86,35 +86,31 @@ view once their five-minute window lapses. Before ETags existed this took up to 
 year on v1; if you are debugging a stale answer in a browser, check `sessionStorage` for
 `wikipeople:*` as well, which the gadget holds for five minutes.
 
-The opt-out release adds the `page_optout` table, which `create_all()` creates on first start.
-Its two environment controls are:
+The opt-out release adds the `page_optout` table and the display-policy release adds
+`wiki_display_policy`; `create_all()` creates both on first start. They are fed from one on-wiki
+page by one job, under two environment controls:
 
-- `OPTOUT_PAGE` (default `Project:WikiPeople/opt-out`) — the on-wiki list each community maintains.
-  MediaWiki resolves the canonical `Project:` prefix per wiki, so one value reaches
-  `Wikipédia:WikiPeople/opt-out` on frwiki and `Wikipedia:WikiPeople/opt-out` on enwiki. Always set it
-  in canonical form. A localized prefix only resolves on the wiki it came from: `Utilisateur:…` is
-  userspace on frwiki but a *mainspace article title* on enwiki, and the sync reads every active
-  wiki, so a stray article by that name would become that wiki's list. While WikiPeople is a personal
-  script the list may live under the maintainer's `User:` tree instead; give it no `.json`, `.js`
-  or `.css` extension, or MediaWiki restricts it to interface administrators and the people it is
-  meant to serve can no longer edit it;
-- `OPTOUT_CATEGORY_LIMIT` (default `5000`) — how many articles one category entry may cover.
-  Categories are not walked recursively. A category past the cap is logged as truncated by
-  `optout-sync`, and that log line is the only signal, so read it.
+- `CONFIG_PAGE` (default `User:Schiste/wikipeople-config.json`) — the single page WikiPeople is
+  configured on, read on every active wiki. It carries the gadget's own options, which the browser
+  reads and the server ignores, and four the server applies: `optOut`, `contributorNames`,
+  `sanctionedAccounts` and `anonymisedAccounts`. `User:` is a canonical prefix MediaWiki resolves
+  per wiki, so always set it in canonical form. A localized prefix only resolves on the wiki it
+  came from: `Utilisateur:…` is userspace on frwiki but a *mainspace article title* on enwiki, and
+  the sync reads every active wiki, so a stray article by that name would become that wiki's
+  configuration. The same title must be set in `wikipeople.js`, where `CONFIG_OWNER` and
+  `CONFIG_PAGE_SUFFIX` compose it; `tests/test_config.py` fails if the two drift apart;
+- `OPTOUT_CATEGORY_LIMIT` (default `5000`) — how many articles one `optOut` category entry may
+  cover. Categories are not walked recursively. A category past the cap is logged as truncated by
+  `config-sync`, and that log line is the only signal, so read it.
 
-See [ADR-0008](decisions/0008-article-opt-out.md) for what the list does and does not do.
+A wiki with no configuration page is served the defaults. A page that cannot be fetched, or that
+does not parse as JSON, leaves the stored configuration exactly as it was — an error is not an
+instruction, while an empty `optOut` array is one.
 
-The display-policy release adds the `wiki_display_policy` table, which `create_all()` creates on
-first start, and one control:
+See [ADR-0008](decisions/0008-article-opt-out.md) for what the list does and does not do, and
+[ADR-0011](decisions/0011-on-wiki-display-policy.md) for why the two live on one page.
 
-- `DISPLAY_POLICY_PAGE` (default `Project:WikiPeople/display`) — the on-wiki page each community
-  states its display policy on: whether contributors are named at all, and how a sanctioned or a
-  renamed account appears. Resolved per wiki exactly like `OPTOUT_PAGE`, with the same warning
-  about canonical prefixes, and with the same prohibition on a `.json`, `.js` or `.css`
-  extension — MediaWiki restricts those to interface administrators, and who gets named is not an
-  interface administrator's decision. A wiki with no page is served the defaults.
-
-It also adds `has_user_page` to `contributor_standing`, so a name is not drawn as a link to a user
+The display-policy release also adds `has_user_page` to `contributor_standing`, so a name is not drawn as a link to a user
 page that does not exist. **On a database that predates it, `create_all()` will not add the
 column**: run `ALTER TABLE contributor_standing ADD COLUMN has_user_page BOOLEAN NULL` before
 deploying, or every read of the table fails. Nullable on purpose — "nobody has looked yet" and
@@ -122,7 +118,8 @@ deploying, or every read of the table fails. Nullable on purpose — "nobody has
 starts null everywhere and the next `standing-sync` fills it.
 
 See [ADR-0011](decisions/0011-on-wiki-display-policy.md) for the vocabulary and why an unlinked
-name says nothing about why it is unlinked.
+name says nothing about why it is unlinked, and the [on-wiki setup guide](onwiki-setup.md) for
+what each option accepts.
 
 The sanctioned-contributor release adds the `contributor_standing` table, which
 `create_all()` creates on first start. Its controls are:
@@ -294,20 +291,23 @@ its rate is not.
 
 ### The on-wiki configuration page
 
-While WikiPeople is a personal script, each user's settings live at
-`User:<name>/wikipeople-config.json` on the wiki, next to their copy of the script. Per-wiki defaults
-are published in [`config/`](../config) for people to copy; the full field reference and
-troubleshooting steps are in [on-wiki setup](onwiki-setup.md).
+One page per wiki holds every setting WikiPeople has, at `CONFIG_PAGE` — while the script is
+personal, the maintainer's own `User:<name>/wikipeople-config.json`. Per-wiki starter copies are
+published in [`config/`](../config); the full field reference and troubleshooting steps are in
+[on-wiki setup](onwiki-setup.md).
 
-Operationally this means the service has no say in it, by design: installing, configuring, and
-switching the script off all happen in user space with no rights and no deployment. Expect to learn
-about a local opt-out from a page history, not from a ticket.
+The page has two readers with different latencies. The gadget fetches it in the browser, so an
+edit to one of its six options propagates within minutes (`action=raw` is CDN-cached) and reaches a
+given reader on their next browser session, or after 24 hours at the latest. The four options the
+API applies are materialised by `config-sync` instead, so they take a quarter of an hour and then
+apply to everyone at once, including a direct API caller.
 
-Edits propagate within minutes (`action=raw` is CDN-cached) and reach a given reader on their next
-browser session, or after 24 hours at the latest.
+Operationally this means the service has no say in what the page says, by design: installing,
+configuring, and switching the script off all happen in user space with no rights and no
+deployment. Expect to learn about a local opt-out from a page history, not from a ticket.
 
-When a community adopts the script as a site-wide gadget, its configuration moves to
-`MediaWiki:Wikipeople-config.json` on that wiki, maintained by its interface administrators.
+When a community adopts the script as a site-wide gadget, the page moves into that wiki's project
+namespace, which is one environment variable here and one constant in `wikipeople.js`.
 
 ## Normal deployment
 
@@ -354,8 +354,7 @@ Then inspect webservice logs and check that both worker replicas are running.
 | `gradual-backfill` | Hourly | Per `BACKFILL_WIKIS` entry, enqueues one batch of the most-wanted uncached articles at P10, falling back to the heaviest |
 | `weak-metric-recompute` | Daily | Re-queues `RECOMPUTE_BATCH_SIZE` edit-count answers at P5 in case WikiWho has indexed them since |
 | `cache-cleanup` | Weekly | Removes old failed work, superseded result revisions, and expired demand and usage rows |
-| `optout-sync` | Every 15 minutes | Per active wiki, materialises the on-wiki opt-out list into `page_optout` |
-| `display-policy-sync` | Every 15 minutes | Per active wiki, materialises the on-wiki display policy into `wiki_display_policy` |
+| `config-sync` | Every 15 minutes | Per active wiki, materialises the on-wiki configuration page into `page_optout` and `wiki_display_policy` |
 | `standing-sync` | Hourly | Per active wiki, refreshes block, lock and user-page status for named accounts into `contributor_standing` |
 
 Live gadget misses and expired results enqueue P100 work. Prewarm and backfill skip any page with
@@ -414,38 +413,34 @@ must stop being served entirely.
 
 ### A wiki wants the count without the names, or wants a name unlinked rather than withheld
 
-This is a community decision and needs no deployment either. Edit
-`Wikipédia:WikiPeople/display` (or the same page in the local project namespace) and set
-`contributor-names`, `sanctioned-accounts` or `anonymised-accounts` on a bulleted line. Where the
-page does not exist yet, `docs/onwiki/display.fr.wiki` is a starter copy to paste: it states every
-option at its default and documents what each accepts. `display-policy-sync` picks it up within
-fifteen minutes.
+This needs no deployment. Set `contributorNames`, `sanctionedAccounts` or `anonymisedAccounts`
+on the wiki's `CONFIG_PAGE`. Where that page does not exist yet, [`config/`](../config) holds a
+starter copy per wiki: each states every option at its default and documents what each accepts.
+`config-sync` picks it up within fifteen minutes.
 
 A value the service does not recognise is not applied and not half-applied — the option keeps its
 default — and the sync logs every key and value it ignored, which is the only signal that a typo
 was saved. To see what a page will do before it takes effect:
 
 ```bash
-python -m wikipeople.displaypolicy --wiki frwiki --dry-run
+python -m wikipeople.onwiki --wiki frwiki --dry-run
 ```
 
 ### An article should stop naming its contributors
 
-This is a community decision and needs no deployment. Add the article — or a category it belongs
-to — as a bulleted link on `Wikipédia:WikiPeople/opt-out` (or the same page in the local project
-namespace). Where that page does not exist yet, `docs/onwiki/optout.fr.wiki` is a starter copy to
-paste: it documents the entry format for editors and ships with no entries. `optout-sync` picks it up within fifteen minutes, and readers see the change once
-their five-minute cache lapses. Removing the entry reverses it just as quickly; nothing is
-recomputed either way.
+This needs no deployment. Add the article — or a category it belongs to — as a string in the
+`optOut` array on the wiki's `CONFIG_PAGE`. `config-sync` picks it up within fifteen minutes, and
+readers see the change once their five-minute cache lapses. Removing the entry reverses it just as
+quickly; nothing is recomputed either way.
 
 To check what a list will cover before it takes effect:
 
 ```bash
-python -m wikipeople.optout --wiki frwiki --dry-run
+python -m wikipeople.onwiki --wiki frwiki --dry-run
 ```
 
 If a page seems not to be covered, the sync log names what it dropped and why: a redlinked title,
-a link in a namespace that is neither article nor category, or a category past
+a title in a namespace that is neither article nor category, or a category past
 `OPTOUT_CATEGORY_LIMIT`. A wiki whose Action API was unreachable keeps its previous list rather
 than losing it, and says so in the log.
 

@@ -1,18 +1,26 @@
 {
 	"//": {
-		"note": "Everything in this block is documentation for whoever edits this page. The gadget reads the six options below it, checks each value against the list given here, and ignores every other key — including this one.",
+		"note": "Everything in this block is documentation for whoever edits this page. It is the one page WikiPeople is configured on. The gadget in your browser reads the six drawing options and checks each value against the list given here; the API reads the four below them, on a schedule, because a rule the API does not apply is a rule readers can ask around. Both ignore every other key, including this one.",
 		"documentation": "https://github.com/schiste/wikifame/blob/main/docs/onwiki-setup.md",
 		"enabled": "true or false. Default: true. false stops the gadget on this wiki.",
 		"showHistoryIntro": "\"anonymous\", \"always\" or \"never\". Default: \"anonymous\", which shows the history box to logged-out readers only.",
 		"editHelpPage": "A local page title, or null. Default: null. Used only together with sandboxPage.",
 		"sandboxPage": "A local page title, or null. Default: null. Used only together with editHelpPage.",
 		"historyIntroPage": "A local page title, or null. Default: null. Its wikitext replaces the built-in history box text.",
-		"messages": "An object mapping a message key to its replacement text. Default: {}. The keys are listed in the documentation above."
+		"messages": "An object mapping a message key to its replacement text. Default: {}. The keys are listed in the documentation above.",
+		"contributorNames": "\"show\" or \"hide\". Default: \"show\". \"hide\" serves every article's contributor count without any names, which is not the same as opting the article out: the article was never listed.",
+		"sanctionedAccounts": "\"hide\", \"unlink\" or \"link\". Default: \"hide\". How an account this wiki has lastingly excluded appears. \"hide\" withholds the name and moves its share into the remainder; \"unlink\" keeps the name without a link to the user page; \"link\" treats the account like any other. Applies to indefinite blocks and CentralAuth locks, never to a courtesy block.",
+		"anonymisedAccounts": "\"label\", \"hide\", \"unlink\" or \"link\". Default: \"label\". How the placeholder a global rename leaves behind — \"Renamed user 4501e2a3c\" — appears. \"label\" credits it as an anonymised account, keeping its share where it belongs; \"hide\" moves that share into the remainder and so misattributes the article.",
+		"optOut": "An array of page titles, or category titles, counted but never named. Default: []. A category covers the articles directly in it, one level deep, up to five thousand. An empty array means nobody is opted out; a page that does not parse as JSON changes nothing at all."
 	},
 	"enabled": true,
 	"showHistoryIntro": "anonymous",
 	"editHelpPage": "Aide:Comment modifier une page",
 	"sandboxPage": "Wikipédia:Bac à sable",
 	"historyIntroPage": null,
-	"messages": {}
+	"messages": {},
+	"contributorNames": "show",
+	"sanctionedAccounts": "hide",
+	"anonymisedAccounts": "label",
+	"optOut": []
 }

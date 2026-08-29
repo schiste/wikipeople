@@ -61,7 +61,7 @@ then minutes, not days.
 
 3. Create the database, as in the first-deployment procedure in
    [operations.md](operations.md): `CREATE DATABASE ${TOOL_TOOLSDB_USER}__wikipeople`
-   (`CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`). The application creates the six
+   (`CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`). The application creates the nine
    tables itself on first start.
 4. Copy the configuration. `.env.example` documents around forty variables, but the old tool
    only ever *set* four beyond the `TOOL_REPLICA_*` and `TOOL_TOOLSDB_*` pairs that Toolforge
@@ -70,7 +70,7 @@ then minutes, not days.
    | Variable | Carried across |
    | --- | --- |
    | `BACKFILL_WIKIS`, `PREWARM_WIKIS` | verbatim |
-   | `OPTOUT_PAGE` | same shape, new name — a user subpage, not the `Project:` page in `.env.example` |
+   | `CONFIG_PAGE` | new name, and it replaces `OPTOUT_PAGE`: one page now carries the opt-out list and the display policy, so set the new variable and do not carry the old one across |
    | `WIKIFAME_USER_AGENT` → `WIKIPEOPLE_USER_AGENT` | product name only; **the contact address must not move** |
 
    Copy them tool to tool on the bastion rather than retyping, so the contact address cannot
@@ -249,11 +249,13 @@ The only window where anything can look broken. Do it in one sitting.
    | `User:<name>/wikipeople.js` | the script |
    | `User:<name>/wikipeople.css` | its styles — the 89 renamed class names live here |
    | `User:<name>/common.js` | the two `importScript` / `importStylesheet` lines |
-   | `User:<name>/wikipeople-optout` | the opt-out list, matching `OPTOUT_PAGE` |
+   | `User:<name>/wikipeople-config.json` | every setting, matching `CONFIG_PAGE` |
 
-   Readers who wrote their own `User:<name>/wikifame-config.json` have to move it too; the
-   gadget reads the new suffix and treats a missing page as "no settings", so nothing breaks
-   loudly — their preferences just quietly revert to the defaults.
+   The configuration page absorbs the old `wikipeople-optout` list as its `optOut` array;
+   move the entries across in the same session and delete the wikitext page afterwards, not
+   before. The gadget treats a missing page as "no settings" and the sync treats it as "this
+   wiki decided nothing", so a gap between the two breaks nothing loudly — it just serves the
+   defaults, which names everyone the list was hiding.
 6. Replace the old tool's web service with 301 redirects to the new host. Stop the build
    service and start a lighttpd one over a `~/.lighttpd.conf` holding:
 
@@ -272,10 +274,10 @@ The only window where anything can look broken. Do it in one sitting.
 **Gate:** a known frwiki article returns the same names as before the switch, and
 `wikifame.toolforge.org/v2/...` redirects.
 
-This phase is also the moment to clear two known on-wiki defects, since the pages are being
-rewritten anyway: the opt-out page links to `[[Discussion Wikipédia:…]]` (namespace 5) where
-it means the maintainer's user talk page (namespace 3), and
-`docs/onwiki/presentation.en.wiki` is stale.
+This phase is also the moment to clear a known on-wiki defect, since the pages are being
+rewritten anyway: `docs/onwiki/presentation.en.wiki` is stale. The old opt-out page's own two
+defects — a `[[Discussion Wikipédia:…]]` link (namespace 5) where it meant the maintainer's
+user talk page (namespace 3), and a lowercase `wikipeople` — disappear with the page itself.
 
 ## Phase 4 — Retire the old tool
 

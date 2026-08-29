@@ -6,28 +6,34 @@ nobody else's permission.
 
 Toolforge-side operation is covered separately in the [operations runbook](operations.md).
 
-## The three pages in your user space
+## The pages
 
-All three live under your own user name, on whichever wiki you are installing on:
-
-| Page | What it is | Required? |
-| --- | --- | --- |
-| `User:YOU/wikipeople.js` | The script | Yes |
-| `User:YOU/wikipeople.css` | Its styles | Yes |
-| `User:YOU/wikipeople-config.json` | Your settings for this wiki | No |
+| Page | What it is | Whose | Required? |
+| --- | --- | --- | --- |
+| `User:YOU/wikipeople.js` | The script | Yours | Yes |
+| `User:YOU/wikipeople.css` | Its styles | Yours | Yes |
+| `User:Schiste/wikipeople-config.json` | How WikiPeople behaves on this wiki | The maintainer's | No |
 
 Substitute your wiki's own user-namespace name where it differs — `Utilisateur:` on the French
-Wikipedia, for example. The script resolves that itself, so the three pages always sit together
-whatever the wiki calls the namespace.
+Wikipedia, for example. The script resolves that itself, so nothing anywhere writes down a
+namespace prefix.
 
-Then load the first two from `User:YOU/common.js`:
+Load the first two from `User:YOU/common.js`:
 
 ```javascript
 importScript( 'User:YOU/wikipeople.js' );
 importStylesheet( 'User:YOU/wikipeople.css' );
 ```
 
-The configuration page is **not** imported. The script looks it up by name on its own.
+The configuration page is **not** imported, and it is **not** yours. The script looks it up by
+name, and it is the same name for every reader of a wiki, because WikiPeople has one maintainer
+and one set of settings per wiki rather than one per reader. When it becomes a site-wide gadget
+that page moves to the project namespace; see [Later](#later-becoming-a-site-wide-gadget).
+
+That page has a second reader. The API on Toolforge fetches it too, every quarter of an hour,
+because four of the settings on it are rules about what may be served at all — and a rule the API
+does not apply is a rule any reader can ask around by calling the API directly. The two readers
+share the page and nothing else: each ignores the other's keys entirely.
 
 ## Before you start: is the wiki covered?
 
@@ -40,47 +46,60 @@ there does no harm, but it does nothing either.
 
 ## Creating the configuration page
 
-Everything works without it. Its one real job is supplying the two local page titles the script
-cannot guess: your wiki's editing help and its sandbox. Without them, the "to get started, read …
+Everything works without it. Its one real job for the script is supplying the two local page titles
+it cannot guess: your wiki's editing help and its sandbox. Without them, the "to get started, read …
 or practise in …" sentence in the history box is simply left out.
 
 1. Pick the file for your wiki from [`config/`](../config) in this repository — currently
    [`enwiki.json`](../config/enwiki.json) and [`frwiki.json`](../config/frwiki.json).
-2. Create `User:YOU/wikipeople-config.json` on that wiki and paste it in.
+2. Create `User:Schiste/wikipeople-config.json` on that wiki and paste it in.
 3. For a wiki with no published default yet, copy either file and replace the two titles with your
    wiki's own, including their namespace, exactly as they appear locally.
 4. Save. MediaWiki treats `.json` subpages as JSON, validates them, and refuses to save invalid
-   JSON — so a typo cannot reach the script. It reformats with tab indentation; that is expected.
+   JSON — so a typo cannot reach either reader. It reformats with tab indentation; that is expected.
 5. Reload an article **in a new tab**. The script caches the configuration in `sessionStorage`, so
-   an already-open tab may still be using the previous version.
+   an already-open tab may still be using the previous version. Changes to the four API settings
+   take up to fifteen minutes instead, and no new tab.
+
+You need the `editmyuserjson` right to create it, which every registered account has for its own
+subpages. That is the whole reason the page lives here rather than in `MediaWiki:`, where creating
+it would need an interface administrator.
 
 Both files state **every** option, at its default, and open with a `"//"` block naming what each
-one accepts. The gadget reads six keys and ignores everything else, `"//"` included, so that block
+one accepts. Both readers ignore everything they do not recognise, `"//"` included, so that block
 costs nothing and means the page you are editing on the wiki explains itself — which matters,
 because JSON pages cannot carry comments and nobody reads a repository from a wiki edit box.
 
-Keep the options you do not change. A page listing all six shows the next person what exists.
+Keep the options you do not change. A page listing all ten shows the next person what exists.
 
 ### English Wikipedia — [`config/enwiki.json`](../config/enwiki.json)
 
 ```json
 {
 	"//": {
-		"note": "Everything in this block is documentation for whoever edits this page. The gadget reads the six options below it, checks each value against the list given here, and ignores every other key — including this one.",
+		"note": "Everything in this block is documentation for whoever edits this page. It is the one page WikiPeople is configured on. The gadget in your browser reads the six drawing options and checks each value against the list given here; the API reads the four below them, on a schedule, because a rule the API does not apply is a rule readers can ask around. Both ignore every other key, including this one.",
 		"documentation": "https://github.com/schiste/wikifame/blob/main/docs/onwiki-setup.md",
 		"enabled": "true or false. Default: true. false stops the gadget on this wiki.",
 		"showHistoryIntro": "\"anonymous\", \"always\" or \"never\". Default: \"anonymous\", which shows the history box to logged-out readers only.",
 		"editHelpPage": "A local page title, or null. Default: null. Used only together with sandboxPage.",
 		"sandboxPage": "A local page title, or null. Default: null. Used only together with editHelpPage.",
 		"historyIntroPage": "A local page title, or null. Default: null. Its wikitext replaces the built-in history box text.",
-		"messages": "An object mapping a message key to its replacement text. Default: {}. The keys are listed in the documentation above."
+		"messages": "An object mapping a message key to its replacement text. Default: {}. The keys are listed in the documentation above.",
+		"contributorNames": "\"show\" or \"hide\". Default: \"show\". \"hide\" serves every article's contributor count without any names, which is not the same as opting the article out: the article was never listed.",
+		"sanctionedAccounts": "\"hide\", \"unlink\" or \"link\". Default: \"hide\". How an account this wiki has lastingly excluded appears. \"hide\" withholds the name and moves its share into the remainder; \"unlink\" keeps the name without a link to the user page; \"link\" treats the account like any other. Applies to indefinite blocks and CentralAuth locks, never to a courtesy block.",
+		"anonymisedAccounts": "\"label\", \"hide\", \"unlink\" or \"link\". Default: \"label\". How the placeholder a global rename leaves behind — \"Renamed user 4501e2a3c\" — appears. \"label\" credits it as an anonymised account, keeping its share where it belongs; \"hide\" moves that share into the remainder and so misattributes the article.",
+		"optOut": "An array of page titles, or category titles, counted but never named. Default: []. A category covers the articles directly in it, one level deep, up to five thousand. An empty array means nobody is opted out; a page that does not parse as JSON changes nothing at all."
 	},
 	"enabled": true,
 	"showHistoryIntro": "anonymous",
 	"editHelpPage": "Help:Editing",
 	"sandboxPage": "Wikipedia:Sandbox",
 	"historyIntroPage": null,
-	"messages": {}
+	"messages": {},
+	"contributorNames": "show",
+	"sanctionedAccounts": "hide",
+	"anonymisedAccounts": "label",
+	"optOut": []
 }
 ```
 
@@ -89,21 +108,29 @@ Keep the options you do not change. A page listing all six shows the next person
 ```json
 {
 	"//": {
-		"note": "Everything in this block is documentation for whoever edits this page. The gadget reads the six options below it, checks each value against the list given here, and ignores every other key — including this one.",
+		"note": "Everything in this block is documentation for whoever edits this page. It is the one page WikiPeople is configured on. The gadget in your browser reads the six drawing options and checks each value against the list given here; the API reads the four below them, on a schedule, because a rule the API does not apply is a rule readers can ask around. Both ignore every other key, including this one.",
 		"documentation": "https://github.com/schiste/wikifame/blob/main/docs/onwiki-setup.md",
 		"enabled": "true or false. Default: true. false stops the gadget on this wiki.",
 		"showHistoryIntro": "\"anonymous\", \"always\" or \"never\". Default: \"anonymous\", which shows the history box to logged-out readers only.",
 		"editHelpPage": "A local page title, or null. Default: null. Used only together with sandboxPage.",
 		"sandboxPage": "A local page title, or null. Default: null. Used only together with editHelpPage.",
 		"historyIntroPage": "A local page title, or null. Default: null. Its wikitext replaces the built-in history box text.",
-		"messages": "An object mapping a message key to its replacement text. Default: {}. The keys are listed in the documentation above."
+		"messages": "An object mapping a message key to its replacement text. Default: {}. The keys are listed in the documentation above.",
+		"contributorNames": "\"show\" or \"hide\". Default: \"show\". \"hide\" serves every article's contributor count without any names, which is not the same as opting the article out: the article was never listed.",
+		"sanctionedAccounts": "\"hide\", \"unlink\" or \"link\". Default: \"hide\". How an account this wiki has lastingly excluded appears. \"hide\" withholds the name and moves its share into the remainder; \"unlink\" keeps the name without a link to the user page; \"link\" treats the account like any other. Applies to indefinite blocks and CentralAuth locks, never to a courtesy block.",
+		"anonymisedAccounts": "\"label\", \"hide\", \"unlink\" or \"link\". Default: \"label\". How the placeholder a global rename leaves behind — \"Renamed user 4501e2a3c\" — appears. \"label\" credits it as an anonymised account, keeping its share where it belongs; \"hide\" moves that share into the remainder and so misattributes the article.",
+		"optOut": "An array of page titles, or category titles, counted but never named. Default: []. A category covers the articles directly in it, one level deep, up to five thousand. An empty array means nobody is opted out; a page that does not parse as JSON changes nothing at all."
 	},
 	"enabled": true,
 	"showHistoryIntro": "anonymous",
 	"editHelpPage": "Aide:Comment modifier une page",
 	"sandboxPage": "Wikipédia:Bac à sable",
 	"historyIntroPage": null,
-	"messages": {}
+	"messages": {},
+	"contributorNames": "show",
+	"sanctionedAccounts": "hide",
+	"anonymisedAccounts": "label",
+	"optOut": []
 }
 ```
 
@@ -135,6 +162,43 @@ keeps doing what it said.
 
 `editHelpPage` and `sandboxPage` work as a pair. The help sentence appears only when **both** are
 set; setting just one leaves it out entirely.
+
+### The four the API applies
+
+These are on the same page and behave the same way — same spelling rules, same silent fallback to
+the default on an unrecognised value. What differs is who acts on them, and therefore how they
+fail: the script never sees them, so they hold for every reader, including one calling the API with
+`curl`.
+
+| Key | Accepts | Default | Effect |
+| --- | --- | --- | --- |
+| `contributorNames` | `"show"`, `"hide"` | `"show"` | `"hide"` serves every article with its contributor count and no names at all. |
+| `sanctionedAccounts` | `"hide"`, `"unlink"`, `"link"` | `"hide"` | How an account the wiki has lastingly excluded appears. |
+| `anonymisedAccounts` | `"label"`, `"hide"`, `"unlink"`, `"link"` | `"label"` | How the placeholder a global rename leaves behind appears. |
+| `optOut` | an array of page or category titles | `[]` | Articles counted but never named. See [ADR-0008](decisions/0008-article-opt-out.md). |
+
+`contributorNames` set to `"hide"` is not the same as opting every article out. The count is still
+served and the sentence still renders, so a reader is told how many people wrote the article and
+not who; nothing is quietly missing, and no article ends up on a list.
+
+`sanctionedAccounts` covers indefinite blocks and CentralAuth locks — a lasting exclusion — never a
+short or courtesy block. `"hide"` withholds the name and folds its share into "and N others";
+`"unlink"` keeps the name without a link; `"link"` treats the account like any other.
+
+`anonymisedAccounts` covers `Renamed user 4501e2a3c` and its kin. The default `"label"` credits it
+as *an anonymised account*, keeping its share where it belongs. `"hide"` is available and is a
+worse answer: the account did write the text, so moving its share into "and N others" credits that
+text to people who did not write it.
+
+None of the three explains itself to the reader. `"unlink"` renders identically whatever the
+reason — sanctioned, anonymised, or simply an account with no user page — so an unlinked name is
+never evidence of a sanction. See [ADR-0011](decisions/0011-on-wiki-display-policy.md).
+
+`optOut` accepts article titles and category titles in the same array. A category covers the
+articles directly in it, one level deep, up to five thousand. An empty array is an instruction and
+means nobody is opted out. A page that cannot be read — network failure, or JSON the parser
+rejects — is not: the last list that was understood stays in force, because a stray comma must not
+un-hide every opted-out article at once.
 
 ### Who sees the history box
 
@@ -329,6 +393,7 @@ order:
 | No box on page-history views, but articles are fine | `showHistoryIntro` is at its default `"anonymous"` and you are logged in. Set `"always"`. |
 | The sentence shows but the help sentence does not | `editHelpPage` and `sandboxPage` are not both set, `showHistoryIntro` is `"never"`, or `historyIntroPage` is set and has replaced it. |
 | Configuration edits have no effect | Stale `sessionStorage`; open a new tab. Or a key is misspelled, or its value is not one the option accepts — both are ignored silently. |
+| An edit to one of the four API settings has no effect | It is read on a schedule; wait a quarter of an hour. If it still has none, the value is not one the option accepts. |
 | `historyIntroPage` is set but the built-in text still shows | The page does not exist under any of the three titles tried, or its absence is still cached. Create it, then open a new tab. |
 | Custom content renders but looks wrong | It is your wikitext, parsed as usual. Preview the page on its own; what you see there is what the box gets. Oversized media is constrained by `wikipeople.css`, not fixed. |
 | The author count stays on its fallback wording | No result for this article yet — open the article itself once, wait, then come back. Also check the class name: `wikipeople-count`, on an element, not a template parameter. |
@@ -339,37 +404,28 @@ not outside the main namespace.
 For a deeper look, open the browser console. Initialisation failures are logged through
 `mw.log.warn` with a `WikiPeople:` prefix.
 
-## What the wiki decides, and what you decide
+## What is not on the page
 
-The page above is yours: it governs what *your* browser draws. Two things it deliberately cannot
-reach are decided by the wiki instead, on ordinary wikitext pages that any registered editor can
-edit, and are enforced by the API for every reader at once:
+A contributor with no user page has their name shown without a link. That is a bug fix rather than
+a policy — a blue link that leads to an empty create form is a promise the box should not make — so
+it applies everywhere and cannot be switched off. It is also why an unlinked name tells you nothing
+about *why* it is unlinked.
 
-| Page | What it decides |
-| --- | --- |
-| `Project:WikiPeople/opt-out` | Which articles are counted but not named. See [ADR-0008](decisions/0008-article-opt-out.md). |
-| `Project:WikiPeople/display` | Whether contributors are named at all, and how a sanctioned or a renamed account appears. See [ADR-0011](decisions/0011-on-wiki-display-policy.md). |
-
-They are not options in your JSON, and that is the point. The API withholds a sanctioned name
-before it ever reaches your browser, so no personal setting could show one; and "name the people
-who wrote this" is a statement a project makes about its own contributors, which is not a reader's
-to override. Starter copies of both pages, documenting their own format, are in
-[`docs/onwiki/`](onwiki).
-
-One thing neither page controls: a contributor with no user page has their name shown without a
-link. That is a bug fix rather than a policy — a blue link that leads to an empty create form is a
-promise the box should not make — so it applies everywhere and cannot be switched off. It also
-means an unlinked name tells you nothing about *why* it is unlinked, which is deliberate.
+Nothing on the configuration page is ever executed or inserted as markup. Rich content comes from a
+wikitext page through MediaWiki's own parser, and JavaScript comes from `mw.hook`, so the JSON stays
+a thing you can review by reading it.
 
 ## Later: becoming a site-wide gadget
 
-Once a community adopts WikiPeople for all its readers, the configuration stops being personal and
-moves to `MediaWiki:Wikipeople-config.json` on that wiki — same fields, same file, one copy shared by
-everyone, editable by interface administrators. The files in [`config/`](../config) become the
-starting point for that page instead of for a personal one.
+Once a community adopts WikiPeople for all its readers, the configuration stops belonging to one
+maintainer and moves into the project namespace — `Wikipédia:WikiPeople/config.json` or whatever
+that community settles on. Same fields, same file, same two readers; only the title changes, in one
+environment variable on the server and one constant in the script.
 
-That step needs a community discussion first; nothing in the design substitutes for asking. Until
-then, user space keeps the prototype installable by anyone, with no rights and no gatekeeper.
+Which title, and whether the four API settings then need a wikitext page beside them so the
+discussion that set them is legible on-wiki, are open questions. That step needs a community
+discussion first, and nothing in the design substitutes for asking. Until then, user space keeps
+the prototype installable with no rights and no gatekeeper.
 
 ## See also
 

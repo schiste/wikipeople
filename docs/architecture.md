@@ -20,11 +20,14 @@ defaults to empty. A wiki nobody reads therefore costs nothing. See
 [ADR-0003](decisions/0003-universal-wiki-support.md).
 
 The gadget is one wiki-agnostic file. It reports `wgDBname` and lets the API decide; a wiki that
-is off answers `404` and the gadget renders nothing. Wording, help links, and a local opt-out live
-in an on-wiki JSON page, so they change without a deployment. While WikiPeople is a personal script
-that page is `User:<name>/wikipeople-config.json`, next to the script itself, which keeps setup free
-of any rights requirement; a site-wide gadget would move it to `MediaWiki:Wikipeople-config.json`. A
-missing page yields the built-in defaults, and per-wiki defaults are published in `config/`.
+is off answers `404` and the gadget renders nothing. Everything configurable lives on one on-wiki
+JSON page per wiki, so it changes without a deployment. That page has two readers that share
+nothing but the page: the gadget takes the wording and help links, and the API takes the opt-out
+list and the display policy, on a schedule, because a rule the API does not apply is one a direct
+request walks around. While WikiPeople is a personal script the page is the maintainer's own
+`User:<name>/wikipeople-config.json`, editable with no rights beyond `editmyuserjson`; a site-wide
+gadget would move it into the project namespace. A missing page yields the built-in defaults, and
+per-wiki defaults are published in `config/`.
 
 Customisation beyond settings is deliberately not expressed in that JSON. `historyIntroPage` names
 a wikitext page whose parsed HTML replaces the history-box wording, so images, Commons video, and
@@ -213,8 +216,8 @@ short retention and must never be repurposed as reader profiles.
 
 Attribution is public page-history data, but a credit under an article title is not the same act
 as a page history, and it is not always welcome. Each wiki therefore maintains a list of articles
-WikiPeople counts but does not name, at `Project:WikiPeople/opt-out` in its own project namespace. The
-`optout-sync` job materialises that list into `page_optout`; the API applies it while building
+WikiPeople counts but does not name, in the `optOut` array of its configuration page. The
+`config-sync` job materialises that list into `page_optout`; the API applies it while building
 every ready response, on both endpoints, so it cannot be sidestepped by the gadget or by a direct
 request. An opted-out article still reports its full `distinct_contributors`. Nothing is deleted:
 the list governs presentation, which is why an entry takes effect — and reverses — in minutes
@@ -242,10 +245,11 @@ stays fresh. `distinct_contributors` is unchanged and the dropped share moves in
 - `Base.metadata.create_all()` creates a fresh schema but is not a migration framework. Introduce
   versioned migrations before changing a database that already contains production data.
 - The gadget has no page-specific fixture; every article uses traceable Toolforge data.
-- The opt-out list is materialised on a schedule, so an entry is live within fifteen minutes
-  rather than instantly, and a wiki whose Action API is unreachable keeps the list it last read.
-  A blanked or vandalised list page names everyone again until it is reverted; `/v1/stats` reports
-  the per-wiki count so the collapse is observable.
+- The opt-out list and the display policy are materialised on a schedule, so a change is live
+  within fifteen minutes rather than instantly, and a wiki whose Action API is unreachable — or
+  whose page no longer parses as JSON — keeps what it last read. A blanked configuration page names
+  everyone again until it is reverted; `/v1/stats` reports the per-wiki count so the collapse is
+  observable.
 - WikiWho covers Wikipedia only. Commons, Wikidata, Wiktionary, and Wikisource have no surviving-
   token provenance at all, so the dividing line is the project, not the language.
 - Database-name resolution assumes every WikiWho language code is dash-free. A dashed code such

@@ -2,12 +2,19 @@
 
 People copy these files onto wikis we do not control and cannot fix. A key the gadget stopped
 reading, or a message key that no longer exists, would fail silently for that reader, so the
-defaults and their documentation are checked against the gadget source rather than by hand.
+defaults and their documentation are checked against the source rather than by hand.
+
+One page, two readers: the gadget draws with six of these options and the API applies four of
+them. Neither reader knows the other's keys exist, so nothing but this file holds the published
+page to both of them at once.
 """
 
 import json
 import re
 from pathlib import Path
+
+from wikipeople.onwiki import OPTOUT_KEY
+from wikipeople.policy import DISPLAY_POLICY_VALUES
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 GADGET_SOURCE = (REPOSITORY_ROOT / "wikipeople.js").read_text(encoding="utf-8")
@@ -49,6 +56,11 @@ def _config_keys() -> set[str]:
     return set(_defaults())
 
 
+def _server_keys() -> set[str]:
+    """The options the API reads off the same page, from the API's own definitions."""
+    return set(DISPLAY_POLICY_VALUES) | {OPTOUT_KEY}
+
+
 def _allowed_values() -> dict[str, list[object]]:
     """The options whose value is a choice rather than a title, and the choices."""
     block = _block(GADGET_SOURCE, "ALLOWED_VALUES = {")
@@ -66,9 +78,8 @@ def test_defaults_are_published_for_the_wikis_the_gadget_already_speaks() -> Non
     assert [path.name for path in DEFAULTS] == ["enwiki.json", "frwiki.json"]
 
 
-def test_defaults_are_valid_json_using_only_keys_the_gadget_reads() -> None:
-    known = _config_keys()
-    assert known == {
+def test_defaults_are_valid_json_using_only_keys_something_reads() -> None:
+    assert _config_keys() == {
         "enabled",
         "showHistoryIntro",
         "editHelpPage",
@@ -76,6 +87,13 @@ def test_defaults_are_valid_json_using_only_keys_the_gadget_reads() -> None:
         "historyIntroPage",
         "messages",
     }
+    assert _server_keys() == {
+        "contributorNames",
+        "sanctionedAccounts",
+        "anonymisedAccounts",
+        "optOut",
+    }
+    known = _config_keys() | _server_keys()
 
     for path in DEFAULTS:
         default = json.loads(path.read_text(encoding="utf-8"))
@@ -103,15 +121,24 @@ def test_published_pages_state_every_option_with_its_default_and_its_allowed_val
     without anyone having to try a value to find out.
     """
     defaults = _defaults()
-    allowed = _allowed_values()
+    allowed = {
+        **_allowed_values(),
+        **{key: list(values) for key, values in DISPLAY_POLICY_VALUES.items()},
+    }
 
     for path in DEFAULTS:
-        notes = json.loads(path.read_text(encoding="utf-8"))["//"]
-        assert set(defaults) <= set(notes), path.name
+        page = json.loads(path.read_text(encoding="utf-8"))
+        notes = page["//"]
+        assert set(defaults) | _server_keys() <= set(notes), path.name
 
         for key, default in defaults.items():
             assert json.dumps(default) in notes[key], (path.name, key)
-            for value in allowed.get(key, []):
+        # The API's options have no DEFAULT_CONFIG to be checked against, so the page's
+        # own value is what the note has to state — which is what a reader compares.
+        for key in _server_keys():
+            assert json.dumps(page[key]) in notes[key], (path.name, key)
+        for key, values in allowed.items():
+            for value in values:
                 assert json.dumps(value) in notes[key], (path.name, key, value)
 
 
@@ -129,7 +156,8 @@ def test_every_option_is_read_somewhere_other_than_where_it_is_validated() -> No
 
 
 def test_setup_guide_documents_every_field_and_message_key() -> None:
-    missing = [key for key in _config_keys() | _message_keys() if f"`{key}`" not in SETUP_GUIDE]
+    documented = _config_keys() | _server_keys() | _message_keys()
+    missing = [key for key in documented if f"`{key}`" not in SETUP_GUIDE]
 
     assert missing == []
 
@@ -141,9 +169,13 @@ def test_setup_guide_states_the_values_each_option_accepts() -> None:
     accepts has to be readable before the page is saved rather than inferred from the
     box that failed to appear.
     """
+    stated = {
+        **_allowed_values(),
+        **{key: list(values) for key, values in DISPLAY_POLICY_VALUES.items()},
+    }
     missing = [
         (key, value)
-        for key, values in _allowed_values().items()
+        for key, values in stated.items()
         for value in values
         if f"`{json.dumps(value)}`" not in SETUP_GUIDE
     ]
