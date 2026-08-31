@@ -39,7 +39,7 @@ calculation remain usable across ordinary edits for `PAGE_FRESHNESS_SECONDS`, 90
   "fresh_until": "2026-11-14T10:00:00Z",
   "is_fresh": true,
   "refreshing": false,
-  "methodology_url": "https://github.com/schiste/wikifame/blob/main/docs/architecture.md"
+  "methodology_url": "https://github.com/schiste/wikipeople/blob/main/docs/architecture.md"
 }
 ```
 
@@ -150,7 +150,7 @@ revision IDs are stable.
   "count_limited": false,
   "countable_tokens": 987,
   "computed_at": "2026-08-16T10:00:00Z",
-  "methodology_url": "https://github.com/schiste/wikifame/blob/main/docs/architecture.md"
+  "methodology_url": "https://github.com/schiste/wikipeople/blob/main/docs/architecture.md"
 }
 ```
 

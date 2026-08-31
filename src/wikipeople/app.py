@@ -205,7 +205,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             "docs": "/docs",
             "health": "/healthz",
             "stats": "/v1/stats",
-            "source": "https://github.com/schiste/wikifame",
+            "source": "https://github.com/schiste/wikipeople",
         }
 
     @app.get("/healthz", include_in_schema=False)

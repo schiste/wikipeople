@@ -120,7 +120,7 @@ class Settings:
             database_url=_database_url(),
             user_agent=os.getenv(
                 "WIKIPEOPLE_USER_AGENT",
-                "WikiPeople/0.1 (https://github.com/schiste/wikifame)",
+                "WikiPeople/0.1 (https://github.com/schiste/wikipeople)",
             ),
             # v2 adds the edit-count fallback below the token metric (ADR-0005). The name
             # dropped "surviving-tokens" because that is now one rung of a ladder rather
@@ -213,7 +213,7 @@ class Settings:
             ),
             methodology_url=os.getenv(
                 "METHODOLOGY_URL",
-                "https://github.com/schiste/wikifame/blob/main/docs/architecture.md",
+                "https://github.com/schiste/wikipeople/blob/main/docs/architecture.md",
             ),
             # Toolforge sets the TOOL_REPLICA_* pair itself; empty outside Toolforge,
             # which is what makes the backfill fall back to the Action API in tests

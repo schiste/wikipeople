@@ -43,7 +43,7 @@ The API web process never calls these upstream services. Only workers and schedu
 4. Build from the public repository:
 
    ```bash
-   toolforge build start https://github.com/schiste/wikifame
+   toolforge build start https://github.com/schiste/wikipeople
    ```
 
 5. Start the webservice defined by `service.template`:
@@ -315,7 +315,7 @@ After merging a code change:
 
 ```bash
 scp jobs.yaml login.toolforge.org:/mnt/nfs/labstore-secondary-tools-project/wikipeople/jobs.yaml
-toolforge build start https://github.com/schiste/wikifame
+toolforge build start https://github.com/schiste/wikipeople
 toolforge webservice buildservice restart
 toolforge jobs load jobs.yaml
 toolforge jobs restart attribution-worker

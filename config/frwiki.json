@@ -1,7 +1,7 @@
 {
 	"//": {
 		"note": "Everything in this block is documentation for whoever edits this page. It is the one page WikiPeople is configured on. The gadget in your browser reads the six drawing options and checks each value against the list given here; the API reads the four below them, on a schedule, because a rule the API does not apply is a rule readers can ask around. Both ignore every other key, including this one.",
-		"documentation": "https://github.com/schiste/wikifame/blob/main/docs/onwiki-setup.md",
+		"documentation": "https://github.com/schiste/wikipeople/blob/main/docs/onwiki-setup.md",
 		"enabled": "true or false. Default: true. false stops the gadget on this wiki.",
 		"showHistoryIntro": "\"anonymous\", \"always\" or \"never\". Default: \"anonymous\", which shows the history box to logged-out readers only.",
 		"editHelpPage": "A local page title, or null. Default: null. Used only together with sandboxPage.",
