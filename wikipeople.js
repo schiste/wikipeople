@@ -199,6 +199,7 @@
 		'wgDBname',
 		'wgDiffNewId',
 		'wgDiffOldId',
+		'wgMFMode',
 		'wgNamespaceNumber',
 		'wgPageName',
 		'wgRevisionId',
@@ -585,9 +586,28 @@
 
 	/* ------------------------------------------------------------------ rendering */
 
+	/**
+	 * Put the box between the page title and the article, whatever skin is drawing.
+	 *
+	 * Minerva — every reader on the mobile site, and anyone who chose it on desktop —
+	 * publishes none of Vector's three slots. It was landing on the last branch, which
+	 * worked by accident and in the wrong container: `#bodyContent` is the article, and a
+	 * note prepended inside it is inside what other tools read as article text. Right on
+	 * screen, wrong in the document.
+	 *
+	 * `#mw-content-subtitle` is what both skins do publish, in the article view and the
+	 * history view alike. It sits between the heading block and `#bodyContent`, so the
+	 * box lands in the same place relative to the article on either skin, and outside it.
+	 * `#siteSub` still comes first because it is the older, narrower slot and Vector
+	 * fills both.
+	 *
+	 * `#bodyContent` stays last rather than becoming the answer: something has to catch a
+	 * skin none of this anticipated, and being in the wrong container beats being absent.
+	 */
 	function insertBelowSubtitle( element ) {
 		var siteSub = document.getElementById( 'siteSub' );
 		var vectorSlot = document.querySelector( '.vector-body-before-content' );
+		var contentSubtitle = document.getElementById( 'mw-content-subtitle' );
 		var bodyContent = document.getElementById( 'bodyContent' );
 
 		if ( siteSub ) {
@@ -597,6 +617,11 @@
 
 		if ( vectorSlot ) {
 			vectorSlot.prepend( element );
+			return true;
+		}
+
+		if ( contentSubtitle ) {
+			contentSubtitle.after( element );
 			return true;
 		}
 
@@ -1214,9 +1239,26 @@
 		return link;
 	}
 
+	/**
+	 * "Edit this article", through whichever editor this reader actually has.
+	 *
+	 * `veaction=edit` is read by ext.visualEditor.desktopArticleTarget.init, and the
+	 * mobile site does not load it: there the parameter is inert and the link returns the
+	 * reader to the page they were already on. An invitation that does nothing is worse
+	 * than no invitation. MobileFrontend routes editing through a hash instead, and its
+	 * own buttons navigate to `#/editor/`.
+	 *
+	 * The test is `wgMFMode`, not the skin name, because the two are not the same
+	 * question: Minerva chosen as a desktop skin has the desktop target and no router,
+	 * and would break under a skin check. `wgMFMode` is set exactly where that router
+	 * runs.
+	 */
 	function createEditLink() {
 		var link = document.createElement( 'a' );
-		link.href = mw.util.getUrl( config.wgPageName, { veaction: 'edit' } );
+
+		link.href = config.wgMFMode ?
+			mw.util.getUrl( config.wgPageName ) + '#/editor/all' :
+			mw.util.getUrl( config.wgPageName, { veaction: 'edit' } );
 		link.textContent = mw.message( 'wikipeople-history-edit-label' ).text();
 		return link;
 	}

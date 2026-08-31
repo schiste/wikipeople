@@ -500,3 +500,26 @@ def test_an_anonymised_account_is_credited_as_an_account_rather_than_as_a_number
     assert ".wikipeople-anonymised" in GADGET_STYLES
     # An unlinked name keeps the weight a linked one has, so the list stays one list.
     assert ".wikipeople-unlinked" in GADGET_STYLES
+
+
+def test_summary_has_a_slot_on_minerva_and_not_inside_the_article() -> None:
+    """Minerva publishes none of Vector's slots, and Minerva is the whole mobile site."""
+    body = GADGET_SOURCE.split("function insertBelowSubtitle(", 1)[1].split("\n\t}", 1)[0]
+    assert "'mw-content-subtitle'" in body
+    # Tried before the article container, which is the last resort and not the answer:
+    # a note prepended into #bodyContent is inside what other tools read as article text.
+    assert body.index("'mw-content-subtitle'") < body.index("'bodyContent'")
+    # Vector fills both, and #siteSub is the narrower slot, so it keeps precedence.
+    assert body.index("'siteSub'") < body.index("'mw-content-subtitle'")
+
+
+def test_edit_invitation_opens_an_editor_on_the_mobile_site() -> None:
+    """`veaction` is inert where MobileFrontend runs: the link would go nowhere."""
+    assert "'wgMFMode'" in GADGET_SOURCE
+    body = GADGET_SOURCE.split("function createEditLink()", 1)[1].split("\n\t}", 1)[0]
+    assert "config.wgMFMode" in body
+    assert "'#/editor/all'" in body
+    assert "veaction: 'edit'" in body
+    # The skin name is a different question: Minerva chosen as a desktop skin has the
+    # desktop VisualEditor target and no MobileFrontend router.
+    assert "minerva" not in body.lower()
