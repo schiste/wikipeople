@@ -45,8 +45,6 @@ policy, update behavior, privacy, and the path toward millions of articles.
   backups, and maintainer transfer.
 - [On-wiki setup](docs/onwiki-setup.md): installing the script on a wiki and configuring it,
   for anyone who wants to run it.
-- [Rename runbook](docs/rename-runbook.md): migrating the tool to the WikiPeople name. Delete
-  this entry and the file once the migration is done.
 - [ADR-0001](docs/decisions/0001-attribution-policy.md): accepted attribution policy and its
   known limitations.
 - [ADR-0002](docs/decisions/0002-page-freshness.md): 90-day page freshness and stale-while-

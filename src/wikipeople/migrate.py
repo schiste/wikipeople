@@ -1,7 +1,7 @@
 """Copy every stored row from one deployment's database into another's.
 
 Written for the WikiFame → WikiPeople rename, where a Toolforge tool cannot be
-renamed and the data has to move to a new tool's database (docs/rename-runbook.md).
+renamed and the data has to move to a new tool's database.
 
 There is no ``mysqldump`` on the Toolforge bastion, and dumping through ``SELECT``
 into TSV is not an option: block and lock reasons are free text and legitimately

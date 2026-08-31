@@ -81,8 +81,8 @@ arguing that `.json` is locked to interface administrators and "who gets named h
 one. That argument was wrong about the page it was defending. A user's own `.json` subpage needs
 `editmyuserjson`, which every registered account has; and WikiPeople is a personal script with one
 maintainer, so the community that would need edit access to a project page does not yet exist. The
-production deployment had already moved `OPTOUT_PAGE` to a user subpage for that reason
-([the rename runbook](../rename-runbook.md) records it), which made the `Project:` default fiction.
+production deployment had already moved `OPTOUT_PAGE` to a user subpage for that reason, which
+made the `Project:` default fiction.
 
 So the opt-out list and the three keys above join the gadget's own options on the single page the
 gadget already fetched, keeping the gadget's camelCase spelling. One page, two readers: the browser
